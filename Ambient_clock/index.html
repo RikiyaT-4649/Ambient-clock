@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambient Flow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- CSS --- */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Inter', sans-serif;
+            color: white;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 背景エリア */
+        #bg-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            transition: background 3s ease;
+        }
+
+        /* Canvas for particle effects */
+        #particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* 画面全体の明るさ調整用オーバーレイ */
+        #dimmer-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            opacity: 0; /* 初期値は明るい */
+            z-index: 3;
+            pointer-events: none; /* クリックを透過させる */
+            transition: opacity 0.1s;
+        }
+
+        /* 時計エリア */
+        #clock-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            transition: opacity 1s;
+            cursor: default;
+            z-index: 10;
+        }
+
+        #time {
+            font-size: 12vw;
+            font-weight: 200;
+            letter-spacing: 0.05em;
+            text-shadow:
+                0 0 40px rgba(255, 255, 255, 0.3),
+                0 0 80px rgba(255, 255, 255, 0.2),
+                0 4px 30px rgba(0, 0, 0, 0.5);
+
+            /* 重要：数字の幅を固定する設定 */
+            font-feature-settings: "tnum";
+            font-variant-numeric: tabular-nums;
+
+            /* グラデーションテキスト効果 */
+            background: linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.8) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        #date {
+            font-size: 1.5vw;
+            margin-top: -10px;
+            opacity: 0.8;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            text-shadow:
+                0 0 20px rgba(255, 255, 255, 0.3),
+                0 2px 10px rgba(0, 0, 0, 0.5);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* アナログ時計 */
+        #analog-clock {
+            display: none;
+            width: 300px;
+            height: 300px;
+            position: relative;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+            border: 3px solid rgba(255,255,255,0.3);
+            box-shadow:
+                0 0 40px rgba(255, 255, 255, 0.2),
+                inset 0 0 40px rgba(0, 0, 0, 0.2);
+            margin: 0 auto;
+        }
+
+        #analog-clock.visible {
+            display: block;
+        }
+
+        .clock-center {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            background: radial-gradient(circle, #ffffff, #cccccc);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 4;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        .clock-hand {
+            position: absolute;
+            bottom: 50%;
+            left: 50%;
+            transform-origin: bottom center;
+            border-radius: 10px;
+        }
+
+        .hour-hand {
+            width: 6px;
+            height: 80px;
+            background: linear-gradient(to top, rgba(255,255,255,0.9), rgba(255,255,255,0.7));
+            margin-left: -3px;
+            z-index: 3;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        .minute-hand {
+            width: 4px;
+            height: 110px;
+            background: linear-gradient(to top, rgba(255,255,255,0.95), rgba(255,255,255,0.8));
+            margin-left: -2px;
+            z-index: 2;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+        }
+
+        .second-hand {
+            width: 2px;
+            height: 120px;
+            background: linear-gradient(to top, #ff6b6b, #ee5a6f);
+            margin-left: -1px;
+            z-index: 1;
+            box-shadow: 0 0 15px rgba(255, 107, 107, 0.6);
+        }
+
+        .clock-number {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .clock-number span {
+            display: inline-block;
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .clock-mark {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.4);
+            left: 50%;
+            margin-left: -1px;
+            transform-origin: center 150px;
+        }
+
+        /* コントロールパネル */
+        #controls-wrapper {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            transition: opacity 0.8s ease, transform 0.8s ease;
+            z-index: 10;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 20px 40px;
+            border-radius: 60px;
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            box-shadow:
+                0 10px 40px rgba(0,0,0,0.6),
+                0 0 60px rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.15);
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .fade-out {
+            opacity: 0;
+            transform: translateY(20px); /* 下に沈むように消える */
+            pointer-events: none;
+        }
+
+        /* サウンド・明るさ コントロール */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .icon {
+            font-size: 24px;
+            cursor: pointer;
+            opacity: 0.4;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            filter: drop-shadow(0 0 0px transparent);
+        }
+        .icon:hover {
+            opacity: 0.9;
+            transform: scale(1.2) rotate(5deg);
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+        }
+        .icon.active {
+            opacity: 1;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.6));
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* スライダーのカスタマイズ */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 80px;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        input[type="range"]:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ffffff, #e0e0e0);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.4);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+        }
+
+        .divider { width: 1px; height: 40px; background: rgba(255,255,255,0.1); }
+
+        /* スイッチボタン */
+        .btn-text {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: rgba(255,255,255,0.7);
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            box-shadow: 0 0 0 rgba(255,255,255,0);
+        }
+        .btn-text:hover {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border-color: rgba(255,255,255,0.5);
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(255,255,255,0.2);
+        }
+        .btn-text.active {
+            background: linear-gradient(135deg, #ffffff, #e0e0e0);
+            color: #000;
+            border-color: white;
+            font-weight: bold;
+            transform: scale(1.02);
+            box-shadow: 0 0 30px rgba(255,255,255,0.5);
+        }
+
+        /* 太陽・月 */
+        #celestial-body {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            z-index: 2;
+            transition: all 3s ease;
+            pointer-events: none;
+        }
+
+        #celestial-body.sun {
+            background: radial-gradient(circle, #fff9e6 0%, #ffeb3b 40%, #ffa726 100%);
+            box-shadow:
+                0 0 40px rgba(255, 235, 59, 0.8),
+                0 0 80px rgba(255, 193, 7, 0.5),
+                0 0 120px rgba(255, 152, 0, 0.3);
+        }
+
+        #celestial-body.moon {
+            background: radial-gradient(circle, #ffffff 0%, #e8eaf6 50%, #c5cae9 100%);
+            box-shadow:
+                0 0 30px rgba(255, 255, 255, 0.6),
+                0 0 60px rgba(197, 202, 233, 0.4),
+                inset -10px -10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        /* ツールパネル（ポモドーロ・アラーム） */
+        #tools-panel {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 20px;
+            min-width: 280px;
+            z-index: 15;
+            border: 1px solid rgba(255,255,255,0.1);
+            opacity: 0;
+            transform: translateX(350px);
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            pointer-events: none;
+        }
+
+        #tools-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
+        }
+
+        .tool-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .tool-section:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .tool-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: rgba(255,255,255,0.9);
+            letter-spacing: 0.05em;
+        }
+
+        .pomodoro-display {
+            font-size: 32px;
+            font-weight: 200;
+            text-align: center;
+            margin: 15px 0;
+            font-feature-settings: "tnum";
+            font-variant-numeric: tabular-nums;
+            color: #fff;
+        }
+
+        .pomodoro-status {
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 10px;
+        }
+
+        .tool-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .tool-btn {
+            flex: 1;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            color: rgba(255,255,255,0.8);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tool-btn:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.4);
+        }
+
+        .tool-btn.active {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: rgba(76, 175, 80, 0.6);
+            color: #4CAF50;
+        }
+
+        .alarm-input {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #fff;
+            font-size: 14px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .alarm-input:focus {
+            outline: none;
+            border-color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.15);
+        }
+
+        .shortcut-hint {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            z-index: 15;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .shortcut-hint.show {
+            opacity: 1;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="bg-container"></div>
+    <canvas id="particle-canvas"></canvas>
+    <div id="celestial-body"></div>
+
+    <div id="dimmer-overlay"></div>
+
+    <div id="clock-container" title="ダブルクリックで全画面">
+        <div id="time">00:00:00</div>
+        <div id="date">LOADING...</div>
+
+        <!-- アナログ時計 -->
+        <div id="analog-clock">
+            <div class="clock-center"></div>
+            <div class="clock-hand hour-hand" id="hour-hand"></div>
+            <div class="clock-hand minute-hand" id="minute-hand"></div>
+            <div class="clock-hand second-hand" id="second-hand"></div>
+        </div>
+    </div>
+
+    <div id="controls-wrapper">
+        <div id="controls">
+            <div class="control-group">
+                <div class="icon" id="btn-bonfire" title="焚き火">🔥</div>
+                <input type="range" id="vol-bonfire" min="0" max="1" step="0.01" value="0.5">
+            </div>
+            
+            <div class="control-group">
+                <div class="icon" id="btn-rain" title="雨">🌧️</div>
+                <input type="range" id="vol-rain" min="0" max="1" step="0.01" value="0.5">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="control-group">
+                <div class="icon" style="cursor: default; opacity: 0.8;">💡</div>
+                <input type="range" id="dimmer-range" min="0" max="0.9" step="0.01" value="0" title="画面の明るさ">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="icon" id="btn-clock-toggle" title="時計切り替え">🕐</div>
+
+            <div class="divider"></div>
+
+            <button class="btn-text" id="btn-wakelock">常時表示 OFF</button>
+        </div>
+    </div>
+
+    <!-- ツールパネル -->
+    <div id="tools-panel">
+        <div class="tool-section">
+            <div class="tool-title">ポモドーロタイマー</div>
+            <div class="pomodoro-status" id="pomodoro-status">準備完了</div>
+            <div class="pomodoro-display" id="pomodoro-time">25:00</div>
+            <div class="tool-buttons">
+                <button class="tool-btn" id="pomodoro-start">開始</button>
+                <button class="tool-btn" id="pomodoro-reset">リセット</button>
+            </div>
+        </div>
+        <div class="tool-section">
+            <div class="tool-title">アラーム</div>
+            <input type="time" class="alarm-input" id="alarm-time" value="07:00">
+            <div class="tool-buttons">
+                <button class="tool-btn" id="alarm-toggle">ON</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ショートカットヒント -->
+    <div class="shortcut-hint" id="shortcut-hint">
+        T: ツール | Space: UI切替 | F: 全画面
+    </div>
+
+    <audio id="audio-bonfire" loop src="bonfire.mp3"></audio>
+    <audio id="audio-rain" loop src="rain.mp3"></audio>
+
+    <!-- 時間帯に応じた環境音 -->
+    <audio id="audio-birds" loop src="https://assets.mixkit.co/active_storage/sfx/2462/2462-preview.mp3"></audio>
+    <audio id="audio-crickets" loop src="https://assets.mixkit.co/active_storage/sfx/1730/1730-preview.mp3"></audio>
+
+    <script>
+        // --- 1. 時計ロジック + 時間帯システム ---
+        let isAnalogClock = false;
+
+        function updateClock() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('ja-JP', { hour12: false });
+            const dateOptions = { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' };
+            const dateStr = now.toLocaleDateString('en-US', dateOptions);
+
+            document.getElementById('time').innerText = timeStr;
+            document.getElementById('date').innerText = dateStr;
+
+            // アナログ時計の針を更新
+            if (isAnalogClock) {
+                updateAnalogClock(now);
+            }
+
+            // 時間帯に応じた背景を更新
+            updateTimeOfDay(now.getHours(), now.getMinutes());
+            // 太陽・月の位置を更新
+            updateCelestialBody(now.getHours(), now.getMinutes());
+        }
+
+        function updateAnalogClock(now) {
+            const hours = now.getHours() % 12;
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+
+            // 角度を計算（12時を0度として時計回りに回転）
+            const secondDeg = (seconds / 60) * 360;
+            const minuteDeg = (minutes / 60) * 360 + (seconds / 60) * 6;
+            const hourDeg = (hours / 12) * 360 + (minutes / 60) * 30;
+
+            document.getElementById('second-hand').style.transform = `rotate(${secondDeg}deg)`;
+            document.getElementById('minute-hand').style.transform = `rotate(${minuteDeg}deg)`;
+            document.getElementById('hour-hand').style.transform = `rotate(${hourDeg}deg)`;
+        }
+
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // 色の補間関数（16進数カラーコード対応）
+        function interpolateColor(color1, color2, factor) {
+            // 16進数カラーコードをRGBに変換
+            const hexToRgb = (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? [
+                    parseInt(result[1], 16),
+                    parseInt(result[2], 16),
+                    parseInt(result[3], 16)
+                ] : null;
+            };
+
+            const c1 = hexToRgb(color1);
+            const c2 = hexToRgb(color2);
+
+            if (!c1 || !c2) return color1; // エラー時は元の色を返す
+
+            const r = Math.round(c1[0] + (c2[0] - c1[0]) * factor);
+            const g = Math.round(c1[1] + (c2[1] - c1[1]) * factor);
+            const b = Math.round(c1[2] + (c2[2] - c1[2]) * factor);
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // 時間帯判定と背景更新（分単位で滑らかに変化）
+        function updateTimeOfDay(hour, minute = 0) {
+            const bgContainer = document.getElementById('bg-container');
+            const totalMinutes = hour * 60 + minute;
+
+            // 各時間帯の定義（開始時刻と色）
+            const timeGradients = [
+                { time: 0, colors: ['#0f0c29', '#302b63', '#24243e'] },      // 深夜
+                { time: 4 * 60, colors: ['#1a1a2e', '#16213e', '#0f3460'] }, // 明け方前
+                { time: 5 * 60, colors: ['#232526', '#414345', '#e96443'] }, // 夜明け
+                { time: 6 * 60, colors: ['#ff9a56', '#ffd89b', '#19547b'] }, // 日の出
+                { time: 8 * 60, colors: ['#56CCF2', '#87CEEB', '#FFE082'] }, // 朝
+                { time: 10 * 60, colors: ['#4facfe', '#87CEEB', '#e0f7fa'] },// 午前
+                { time: 12 * 60, colors: ['#4facfe', '#00f2fe', '#e1f5fe'] },// 正午
+                { time: 14 * 60, colors: ['#56CCF2', '#6dd5fa', '#ffffff'] },// 午後
+                { time: 16 * 60, colors: ['#ffa751', '#ffe259', '#87CEEB'] },// 夕方前
+                { time: 17 * 60 + 30, colors: ['#ff6b6b', '#ee5a6f', '#c06c84'] }, // 夕方
+                { time: 18 * 60 + 30, colors: ['#c06c84', '#6c5b7b', '#355c7d'] }, // 日没
+                { time: 20 * 60, colors: ['#2c3e50', '#34495e', '#4a5568'] }, // 宵
+                { time: 22 * 60, colors: ['#0f0c29', '#302b63', '#24243e'] }, // 夜
+            ];
+
+            // 現在の時刻に最も近い2つの時間帯を見つける
+            let beforeGrad = timeGradients[0];
+            let afterGrad = timeGradients[1];
+
+            for (let i = 0; i < timeGradients.length - 1; i++) {
+                if (totalMinutes >= timeGradients[i].time && totalMinutes < timeGradients[i + 1].time) {
+                    beforeGrad = timeGradients[i];
+                    afterGrad = timeGradients[i + 1];
+                    break;
+                }
+            }
+
+            // 2つの時間帯の間での進行度を計算
+            const timeDiff = afterGrad.time - beforeGrad.time;
+            const progress = (totalMinutes - beforeGrad.time) / timeDiff;
+
+            // 各色を補間
+            const color1 = interpolateColor(beforeGrad.colors[0], afterGrad.colors[0], progress);
+            const color2 = interpolateColor(beforeGrad.colors[1], afterGrad.colors[1], progress);
+            const color3 = interpolateColor(beforeGrad.colors[2], afterGrad.colors[2], progress);
+
+            const gradient = `linear-gradient(to bottom, ${color1} 0%, ${color2} 50%, ${color3} 100%)`;
+            bgContainer.style.background = gradient;
+        }
+
+        // 太陽・月の位置と表示を更新
+        function updateCelestialBody(hour, minute) {
+            const celestialBody = document.getElementById('celestial-body');
+            const totalMinutes = hour * 60 + minute;
+
+            // 6:00-18:00は太陽、18:00-6:00は月
+            const isSun = hour >= 6 && hour < 18;
+
+            if (isSun) {
+                celestialBody.className = 'sun';
+                // 太陽の移動: 6:00(左下) → 12:00(中央上) → 18:00(右下)
+                // 6:00 = 360分, 18:00 = 1080分
+                const sunMinutes = totalMinutes - 360; // 0-720分
+                const progress = sunMinutes / 720; // 0-1
+
+                // 弧を描く動き
+                const angle = Math.PI * progress; // 0 → π
+                const centerX = window.innerWidth / 2;
+                const radiusX = window.innerWidth * 0.4;
+                const radiusY = window.innerHeight * 0.3;
+
+                const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
+                const y = window.innerHeight * 0.7 - Math.sin(angle) * radiusY - 40;
+
+                celestialBody.style.left = x + 'px';
+                celestialBody.style.top = y + 'px';
+                celestialBody.style.opacity = '1';
+            } else {
+                celestialBody.className = 'moon';
+                // 月の移動: 18:00(左下) → 0:00(中央上) → 6:00(右下)
+                let moonMinutes;
+                if (hour >= 18) {
+                    moonMinutes = totalMinutes - 1080; // 18:00から
+                } else {
+                    moonMinutes = totalMinutes + 360; // 0:00-6:00
+                }
+                const progress = moonMinutes / 720; // 0-1
+
+                const angle = Math.PI * progress;
+                const centerX = window.innerWidth / 2;
+                const radiusX = window.innerWidth * 0.4;
+                const radiusY = window.innerHeight * 0.3;
+
+                const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
+                const y = window.innerHeight * 0.7 - Math.sin(angle) * radiusY - 40;
+
+                celestialBody.style.left = x + 'px';
+                celestialBody.style.top = y + 'px';
+                celestialBody.style.opacity = '1';
+            }
+        }
+
+
+        // --- 2. 没入モード (マウス静止でUIを隠す) ---
+        const controlsWrapper = document.getElementById('controls-wrapper');
+        let idleTimer;
+
+        function resetIdleTimer() {
+            controlsWrapper.classList.remove('fade-out');
+            document.body.style.cursor = 'default';
+            clearTimeout(idleTimer);
+            
+            idleTimer = setTimeout(() => {
+                controlsWrapper.classList.add('fade-out');
+                document.body.style.cursor = 'none'; // カーソルも隠す
+            }, 3000); // 3秒後
+        }
+
+        window.addEventListener('mousemove', resetIdleTimer);
+        window.addEventListener('click', resetIdleTimer);
+        resetIdleTimer();
+
+
+        // --- 3. パーティクルシステム (Canvas) ---
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Canvas サイズ設定
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // パーティクルクラス
+        class Particle {
+            constructor(type) {
+                this.type = type;
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = this.type === 'star' ? Math.random() * canvas.height : -10;
+                this.size = Math.random() * 2 + 1;
+                this.speedY = this.type === 'star' ? 0 : Math.random() * 2 + 1;
+                this.speedX = this.type === 'star' ? 0 : Math.random() * 0.5 - 0.25;
+                this.opacity = Math.random() * 0.5 + 0.3;
+                this.twinkleSpeed = Math.random() * 0.02 + 0.01;
+                this.twinklePhase = Math.random() * Math.PI * 2;
+
+                // 流れ星専用の初期化
+                if (this.type === 'shootingStar') {
+                    this.x = Math.random() * canvas.width * 0.8 + canvas.width * 0.2; // 右上から
+                    this.y = Math.random() * canvas.height * 0.3; // 上部から
+                    this.speedX = -(Math.random() * 8 + 6); // 左へ速く
+                    this.speedY = Math.random() * 4 + 3; // 下へ
+                    this.size = Math.random() * 1.5 + 1;
+                    this.opacity = 1;
+                    this.tailLength = Math.random() * 60 + 40;
+                    this.life = 1; // フェードアウト用
+                }
+            }
+
+            update() {
+                if (this.type === 'star') {
+                    // 星のきらめき
+                    this.twinklePhase += this.twinkleSpeed;
+                    this.opacity = 0.3 + Math.sin(this.twinklePhase) * 0.4;
+                } else if (this.type === 'shootingStar') {
+                    // 流れ星の動き
+                    this.x += this.speedX;
+                    this.y += this.speedY;
+                    this.life -= 0.008; // ゆっくりフェードアウト
+                    this.opacity = this.life;
+
+                    // 画面外に出たら削除
+                    if (this.life <= 0 || this.x < -100 || this.y > canvas.height + 100) {
+                        return 'remove';
+                    }
+                } else {
+                    // 雨や雪の落下
+                    this.y += this.speedY;
+                    this.x += this.speedX;
+
+                    if (this.y > canvas.height) {
+                        this.reset();
+                    }
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.opacity;
+
+                if (this.type === 'star') {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'shootingStar') {
+                    // 流れ星の尾（グラデーション）
+                    const gradient = ctx.createLinearGradient(
+                        this.x, this.y,
+                        this.x - this.speedX * 0.3, this.y - this.speedY * 0.3
+                    );
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, ' + this.opacity + ')');
+                    gradient.addColorStop(0.5, 'rgba(200, 220, 255, ' + (this.opacity * 0.5) + ')');
+                    gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
+
+                    // 尾を描画
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = this.size * 2;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - this.speedX * 0.3, this.y - this.speedY * 0.3);
+                    ctx.stroke();
+
+                    // 流れ星の頭部（明るい点）
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = 'rgba(255, 255, 255, ' + this.opacity + ')';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                } else if (this.type === 'rain') {
+                    ctx.strokeStyle = '#88c0d0';
+                    ctx.lineWidth = this.size;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + this.speedX * 3, this.y + this.speedY * 5);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // パーティクル配列
+        let particles = [];
+        let currentParticleType = 'star';
+
+        function createParticles(type, count) {
+            particles = [];
+            currentParticleType = type;
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(type));
+            }
+        }
+
+        // 初期パーティクル作成
+        createParticles('star', 200);
+
+        // 流れ星の管理
+        let lastShootingStarTime = Date.now();
+        let nextShootingStarDelay = Math.random() * 20000 + 15000; // 15-35秒
+
+        // アニメーションループ
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // パーティクルの更新と描画（削除が必要なものを除外）
+            particles = particles.filter(particle => {
+                const result = particle.update();
+                if (result !== 'remove') {
+                    particle.draw();
+                    return true;
+                }
+                return false;
+            });
+
+            // 夜間に流れ星をランダムで追加
+            const hour = new Date().getHours();
+            if ((hour >= 20 || hour < 5) && currentParticleType === 'star') {
+                const now = Date.now();
+                if (now - lastShootingStarTime > nextShootingStarDelay) {
+                    particles.push(new Particle('shootingStar'));
+                    lastShootingStarTime = now;
+                    nextShootingStarDelay = Math.random() * 25000 + 15000; // 次は15-40秒後
+                }
+            }
+
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        // 時間帯によってパーティクルタイプを変更
+        function updateParticleType(hour) {
+            if (hour >= 20 || hour < 5) {
+                if (currentParticleType !== 'star') createParticles('star', 200);
+            } else {
+                if (currentParticleType !== 'none' && particles.length > 0) {
+                    particles = [];
+                    currentParticleType = 'none';
+                }
+            }
+        }
+
+        // 時間帯システムを拡張
+        const originalUpdateTimeOfDay = updateTimeOfDay;
+        updateTimeOfDay = function(hour) {
+            originalUpdateTimeOfDay(hour);
+            updateParticleType(hour);
+        };
+
+
+        // --- 4. 時間帯に応じた環境音 ---
+        const audioBirds = document.getElementById('audio-birds');
+        const audioCrickets = document.getElementById('audio-crickets');
+        audioBirds.volume = 0.15;
+        audioCrickets.volume = 0.15;
+
+        function updateAmbientSound(hour) {
+            // 朝（7:00-11:59）：鳥の声
+            if (hour >= 7 && hour < 12) {
+                if (audioBirds.paused) audioBirds.play().catch(() => {});
+                if (!audioCrickets.paused) audioCrickets.pause();
+            }
+            // 夜（20:00-4:59）：コオロギの声
+            else if (hour >= 20 || hour < 5) {
+                if (audioCrickets.paused) audioCrickets.play().catch(() => {});
+                if (!audioBirds.paused) audioBirds.pause();
+            }
+            // それ以外：環境音なし
+            else {
+                if (!audioBirds.paused) audioBirds.pause();
+                if (!audioCrickets.paused) audioCrickets.pause();
+            }
+        }
+
+        // 時間帯システムをさらに拡張
+        const previousUpdateTimeOfDay = updateTimeOfDay;
+        updateTimeOfDay = function(hour) {
+            previousUpdateTimeOfDay(hour);
+            updateAmbientSound(hour);
+        };
+
+
+        // --- 5. オーディオ & 設定保存 (Local Storage) ---
+
+        // 設定を保存する関数
+        function saveSettings() {
+            const settings = {
+                bonfireVol: document.getElementById('vol-bonfire').value,
+                bonfireOn: document.getElementById('btn-bonfire').classList.contains('active'),
+                rainVol: document.getElementById('vol-rain').value,
+                rainOn: document.getElementById('btn-rain').classList.contains('active'),
+                dimmer: document.getElementById('dimmer-range').value
+            };
+            localStorage.setItem('ambientFlowSettings', JSON.stringify(settings));
+        }
+
+        function setupAudio(btnId, volId, audioId, keyName) {
+            const btn = document.getElementById(btnId);
+            const vol = document.getElementById(volId);
+            const audio = document.getElementById(audioId);
+
+            // 音量変更
+            vol.addEventListener('input', (e) => {
+                audio.volume = e.target.value;
+                if(audio.paused && e.target.value > 0 && btn.classList.contains('active')) {
+                   audio.play(); 
+                }
+                saveSettings();
+            });
+
+            // 再生切り替え
+            btn.addEventListener('click', () => {
+                if (audio.paused) {
+                    audio.play();
+                    btn.classList.add('active');
+                } else {
+                    audio.pause();
+                    btn.classList.remove('active');
+                }
+                saveSettings();
+            });
+
+            return { audio, vol, btn };
+        }
+
+        const bonfire = setupAudio('btn-bonfire', 'vol-bonfire', 'audio-bonfire');
+        const rain = setupAudio('btn-rain', 'vol-rain', 'audio-rain');
+
+        // 雨の音がONになったら雨のパーティクルを表示
+        document.getElementById('btn-rain').addEventListener('click', () => {
+            setTimeout(() => {
+                const isRainActive = document.getElementById('btn-rain').classList.contains('active');
+                if (isRainActive) {
+                    createParticles('rain', 150);
+                } else {
+                    // 雨が止まったら、時間帯に応じたパーティクルに戻す
+                    const hour = new Date().getHours();
+                    updateParticleType(hour);
+                }
+            }, 100);
+        });
+
+
+        // --- 6. 明るさ調整 (Dimmer) ---
+        const dimmerRange = document.getElementById('dimmer-range');
+        const dimmerOverlay = document.getElementById('dimmer-overlay');
+
+        dimmerRange.addEventListener('input', (e) => {
+            // スライダーの値(0〜0.9)をそのまま透明度にする
+            // 0 = 透明(明るい), 0.9 = ほぼ真っ黒
+            dimmerOverlay.style.opacity = e.target.value;
+            saveSettings();
+        });
+
+
+        // --- 7. 初期ロード時に設定を復元 ---
+        window.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('ambientFlowSettings');
+            if (saved) {
+                const s = JSON.parse(saved);
+
+                // 焚き火
+                bonfire.vol.value = s.bonfireVol;
+                bonfire.audio.volume = s.bonfireVol;
+                if (s.bonfireOn) { 
+                    // 自動再生ポリシー対策: ここではUIだけONにして、初回のクリック待ちにする等の配慮が必要だが
+                    // 今回は簡易的に「クリック待ち」状態とする（音は出ないがUIはON）
+                    // ユーザーがどこかクリックした瞬間に再生を開始する処理を入れるとベスト
+                    bonfire.btn.classList.add('active');
+                }
+
+                // 雨
+                rain.vol.value = s.rainVol;
+                rain.audio.volume = s.rainVol;
+                if (s.rainOn) {
+                    rain.btn.classList.add('active');
+                }
+
+                // 明るさ
+                if (s.dimmer) {
+                    dimmerRange.value = s.dimmer;
+                    dimmerOverlay.style.opacity = s.dimmer;
+                }
+            }
+        });
+
+        // ブラウザの自動再生ブロック対策：画面のどこかを最初にクリックしたら、Activeな音を再生開始
+        document.body.addEventListener('click', () => {
+            if(bonfire.btn.classList.contains('active') && bonfire.audio.paused) bonfire.audio.play();
+            if(rain.btn.classList.contains('active') && rain.audio.paused) rain.audio.play();
+        }, { once: true });
+
+
+        // --- 8. Wake Lock & Fullscreen ---
+        const wakeLockBtn = document.getElementById('btn-wakelock');
+        let wakeLock = null;
+
+        async function toggleWakeLock() {
+            if ('wakeLock' in navigator) {
+                if (!wakeLock) {
+                    try {
+                        wakeLock = await navigator.wakeLock.request('screen');
+                        wakeLockBtn.innerText = "常時表示 ON";
+                        wakeLockBtn.classList.add('active');
+                        wakeLock.addEventListener('release', () => {
+                            wakeLock = null;
+                            wakeLockBtn.innerText = "常時表示 OFF";
+                            wakeLockBtn.classList.remove('active');
+                        });
+                    } catch (err) { console.error(err); }
+                } else {
+                    wakeLock.release();
+                    wakeLock = null;
+                }
+            }
+        }
+        wakeLockBtn.addEventListener('click', toggleWakeLock);
+
+        // デジタル/アナログ時計の切り替え
+        const clockToggleBtn = document.getElementById('btn-clock-toggle');
+        const digitalTime = document.getElementById('time');
+        const digitalDate = document.getElementById('date');
+        const analogClock = document.getElementById('analog-clock');
+
+        clockToggleBtn.addEventListener('click', () => {
+            isAnalogClock = !isAnalogClock;
+
+            if (isAnalogClock) {
+                // アナログ時計に切り替え
+                digitalTime.style.display = 'none';
+                digitalDate.style.display = 'none';
+                analogClock.classList.add('visible');
+                clockToggleBtn.textContent = '🔢'; // デジタル数字アイコン
+                clockToggleBtn.classList.add('active');
+
+                // 即座にアナログ時計を更新
+                updateAnalogClock(new Date());
+            } else {
+                // デジタル時計に切り替え
+                digitalTime.style.display = '';
+                digitalDate.style.display = '';
+                analogClock.classList.remove('visible');
+                clockToggleBtn.textContent = '🕐'; // アナログ時計アイコン
+                clockToggleBtn.classList.remove('active');
+            }
+        });
+
+        // ダブルクリックでフルスクリーン切り替え
+        document.addEventListener('dblclick', (e) => {
+            // コントロールパネル上でのダブルクリックは除外
+            if (e.target.closest('#controls')) return;
+
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => console.log(e));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+
+        // --- 9. ポモドーロタイマー ---
+        let pomodoroInterval = null;
+        let pomodoroSeconds = 25 * 60; // 25分
+        let pomodoroMode = 'work'; // 'work' or 'break'
+        let pomodoroRunning = false;
+
+        function updatePomodoroDisplay() {
+            const minutes = Math.floor(pomodoroSeconds / 60);
+            const seconds = pomodoroSeconds % 60;
+            document.getElementById('pomodoro-time').textContent =
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function startPomodoro() {
+            if (pomodoroRunning) {
+                // 停止
+                clearInterval(pomodoroInterval);
+                pomodoroRunning = false;
+                document.getElementById('pomodoro-start').textContent = '開始';
+                document.getElementById('pomodoro-start').classList.remove('active');
+            } else {
+                // 開始
+                pomodoroRunning = true;
+                document.getElementById('pomodoro-start').textContent = '停止';
+                document.getElementById('pomodoro-start').classList.add('active');
+
+                pomodoroInterval = setInterval(() => {
+                    pomodoroSeconds--;
+                    updatePomodoroDisplay();
+
+                    if (pomodoroSeconds <= 0) {
+                        // タイマー終了
+                        clearInterval(pomodoroInterval);
+                        pomodoroRunning = false;
+                        document.getElementById('pomodoro-start').textContent = '開始';
+                        document.getElementById('pomodoro-start').classList.remove('active');
+
+                        // 通知
+                        if (pomodoroMode === 'work') {
+                            alert('作業時間終了！5分間休憩しましょう。');
+                            pomodoroMode = 'break';
+                            pomodoroSeconds = 5 * 60;
+                            document.getElementById('pomodoro-status').textContent = '休憩時間';
+                        } else {
+                            alert('休憩終了！次の作業を始めましょう。');
+                            pomodoroMode = 'work';
+                            pomodoroSeconds = 25 * 60;
+                            document.getElementById('pomodoro-status').textContent = '作業時間';
+                        }
+                        updatePomodoroDisplay();
+                    }
+                }, 1000);
+            }
+        }
+
+        function resetPomodoro() {
+            clearInterval(pomodoroInterval);
+            pomodoroRunning = false;
+            pomodoroMode = 'work';
+            pomodoroSeconds = 25 * 60;
+            document.getElementById('pomodoro-start').textContent = '開始';
+            document.getElementById('pomodoro-start').classList.remove('active');
+            document.getElementById('pomodoro-status').textContent = '準備完了';
+            updatePomodoroDisplay();
+        }
+
+        document.getElementById('pomodoro-start').addEventListener('click', startPomodoro);
+        document.getElementById('pomodoro-reset').addEventListener('click', resetPomodoro);
+
+
+        // --- 10. アラーム機能 ---
+        let alarmEnabled = false;
+        let alarmChecked = false;
+
+        function checkAlarm() {
+            if (!alarmEnabled) return;
+
+            const now = new Date();
+            const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            const alarmTime = document.getElementById('alarm-time').value;
+
+            if (currentTime === alarmTime && !alarmChecked) {
+                alarmChecked = true;
+                alert('アラーム: 設定した時刻になりました！');
+                // 1分後にチェックをリセット
+                setTimeout(() => { alarmChecked = false; }, 60000);
+            }
+        }
+
+        document.getElementById('alarm-toggle').addEventListener('click', (e) => {
+            alarmEnabled = !alarmEnabled;
+            e.target.textContent = alarmEnabled ? 'OFF' : 'ON';
+            e.target.classList.toggle('active', alarmEnabled);
+
+            if (alarmEnabled) {
+                setInterval(checkAlarm, 10000); // 10秒ごとにチェック
+            }
+        });
+
+
+        // --- 11. キーボードショートカット ---
+        let toolsPanelVisible = false;
+
+        function toggleToolsPanel() {
+            toolsPanelVisible = !toolsPanelVisible;
+            document.getElementById('tools-panel').classList.toggle('visible', toolsPanelVisible);
+        }
+
+        function toggleUI() {
+            const controls = document.getElementById('controls-wrapper');
+            const tools = document.getElementById('tools-panel');
+            const hint = document.getElementById('shortcut-hint');
+
+            if (controls.style.display === 'none') {
+                controls.style.display = '';
+                if (toolsPanelVisible) tools.style.display = '';
+                hint.style.display = '';
+            } else {
+                controls.style.display = 'none';
+                tools.style.display = 'none';
+                hint.style.display = 'none';
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => console.log(e));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            // 入力フィールドでは無効化
+            if (e.target.tagName === 'INPUT') return;
+
+            switch(e.key.toLowerCase()) {
+                case 't':
+                    toggleToolsPanel();
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    toggleUI();
+                    break;
+                case 'f':
+                    toggleFullscreen();
+                    break;
+                case 'b':
+                    document.getElementById('btn-bonfire').click();
+                    break;
+                case 'r':
+                    document.getElementById('btn-rain').click();
+                    break;
+            }
+        });
+
+        // ショートカットヒントを最初だけ表示
+        setTimeout(() => {
+            document.getElementById('shortcut-hint').classList.add('show');
+            setTimeout(() => {
+                document.getElementById('shortcut-hint').classList.remove('show');
+            }, 5000);
+        }, 2000);
+
+    </script>
+</body>
+</html>
