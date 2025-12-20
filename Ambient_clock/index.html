@@ -340,7 +340,7 @@
             width: 80px;
             height: 80px;
             border-radius: 50%;
-            z-index: 2;
+            z-index: 1; /* Behind clouds (particle-canvas has z-index: 2) */
             transition: all 3s ease;
             pointer-events: none;
         }
@@ -588,6 +588,7 @@
             condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
             temp: null,
             windSpeed: 0,
+            cloudCover: 0,          // Cloud coverage (0-100%)
             moonPhase: 0.5,
             sunrise: null,          // Sunrise time
             sunset: null,           // Sunset time
@@ -704,7 +705,7 @@
 
         // Fetch weather data from Open-Meteo API (No API key required)
         async function fetchWeatherData(lat, lon) {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&current=cloudcover&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
                 const response = await fetch(url);
@@ -713,10 +714,26 @@
                 }
                 const data = await response.json();
 
+                // Debug: Log API response structure
+                console.log('Weather API response:', data);
+                console.log('current object:', data.current);
+                console.log('current_weather object:', data.current_weather);
+
+                // Extract cloudcover - Open-Meteo API returns it as array in 'current' object
+                let cloudCover = 0;
+                if (data.current && data.current.cloudcover !== undefined) {
+                    // cloudcover is returned as a single value or array
+                    cloudCover = Array.isArray(data.current.cloudcover)
+                        ? data.current.cloudcover[0]
+                        : data.current.cloudcover;
+                }
+                console.log('Cloud cover extracted:', cloudCover);
+
                 return {
                     condition: mapWeatherCode(data.current_weather.weathercode),
                     temp: data.current_weather.temperature,
                     windSpeed: data.current_weather.windspeed, // 風速 (km/h)
+                    cloudCover: cloudCover, // 雲量 (0-100%)
                     sunrise: data.daily.sunrise[0],
                     sunset: data.daily.sunset[0],
                     moonPhase: calculateMoonPhase() // ユリウス日を使った計算 (0.00:新月 -> 0.50:満月 -> 1.00:新月)
@@ -776,11 +793,12 @@
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
+                    weatherState.cloudCover = weather.cloudCover;
                     weatherState.moonPhase = weather.moonPhase;
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
 
-                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C`);
+                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%`);
                     console.log(`Sunrise: ${formatTime(weather.sunrise)}, Sunset: ${formatTime(weather.sunset)}`);
                     console.log(`weatherState.condition set to: "${weatherState.condition}"`);
                     console.log(`Current hour: ${new Date().getHours()}`);
@@ -1027,10 +1045,10 @@
             const bgContainer = document.getElementById('bg-container');
             const totalMinutes = hour * 60 + minute;
 
-            // 各時間帯の定義（開始時刻と色）
+            // 各時間帯の定義（開始時刻と色）- 夜空を暗く調整
             const timeGradients = [
-                { time: 0, colors: ['#0f0c29', '#302b63', '#24243e'] },      // 深夜
-                { time: 4 * 60, colors: ['#1a1a2e', '#16213e', '#0f3460'] }, // 明け方前
+                { time: 0, colors: ['#050208', '#0a0a15', '#0d0d1a'] },      // 深夜 - より暗く
+                { time: 4 * 60, colors: ['#0a0a15', '#0d0d1a', '#0f1520'] }, // 明け方前 - より暗く
                 { time: 5 * 60, colors: ['#232526', '#414345', '#e96443'] }, // 夜明け
                 { time: 6 * 60, colors: ['#ff9a56', '#ffd89b', '#19547b'] }, // 日の出
                 { time: 8 * 60, colors: ['#56CCF2', '#87CEEB', '#FFE082'] }, // 朝
@@ -1040,8 +1058,8 @@
                 { time: 16 * 60, colors: ['#ffa751', '#ffe259', '#87CEEB'] },// 夕方前
                 { time: 17 * 60 + 30, colors: ['#ff6b6b', '#ee5a6f', '#c06c84'] }, // 夕方
                 { time: 18 * 60 + 30, colors: ['#c06c84', '#6c5b7b', '#355c7d'] }, // 日没
-                { time: 20 * 60, colors: ['#2c3e50', '#34495e', '#4a5568'] }, // 宵
-                { time: 22 * 60, colors: ['#0f0c29', '#302b63', '#24243e'] }, // 夜
+                { time: 20 * 60, colors: ['#1a1f2e', '#1e2533', '#252d3d'] }, // 宵 - より暗く
+                { time: 22 * 60, colors: ['#050208', '#0a0a15', '#0d0d1a'] }, // 夜 - より暗く
             ];
 
             // 現在の時刻に最も近い2つの時間帯を見つける
@@ -1125,22 +1143,30 @@
 
                 // Calculate moon progress based on time between sunset and next sunrise
                 const now = Date.now();
-                const sunset = weatherState.sunset ? new Date(weatherState.sunset).getTime() : null;
-                const sunrise = weatherState.sunrise ? new Date(weatherState.sunrise).getTime() : null;
+                const sunsetTime = weatherState.sunset ? new Date(weatherState.sunset).getTime() : null;
+                const sunriseTime = weatherState.sunrise ? new Date(weatherState.sunrise).getTime() : null;
 
                 let moonProgress = 0.5; // Default to middle of night
 
-                if (sunset && sunrise) {
-                    // If before midnight, use today's sunset to tomorrow's sunrise
-                    // If after midnight, use yesterday's sunset to today's sunrise
-                    const nextSunrise = now < sunset ? sunrise + 86400000 : sunrise; // Add 24 hours if needed
-                    const prevSunset = now < sunset ? sunset : sunset - 86400000; // Subtract 24 hours if needed
+                if (sunsetTime && sunriseTime) {
+                    // Determine if we're after sunset or before sunrise
+                    let nightStart, nightEnd;
 
-                    const nightDuration = nextSunrise - prevSunset;
-                    const elapsedNight = now - prevSunset;
+                    if (now > sunsetTime) {
+                        // After sunset: use today's sunset to tomorrow's sunrise
+                        nightStart = sunsetTime;
+                        nightEnd = sunriseTime + 86400000; // Tomorrow's sunrise
+                    } else {
+                        // Before sunrise: use yesterday's sunset to today's sunrise
+                        nightStart = sunsetTime - 86400000; // Yesterday's sunset
+                        nightEnd = sunriseTime;
+                    }
+
+                    const nightDuration = nightEnd - nightStart;
+                    const elapsedNight = now - nightStart;
 
                     if (nightDuration > 0 && elapsedNight >= 0) {
-                        moonProgress = elapsedNight / nightDuration;
+                        moonProgress = Math.max(0, Math.min(1, elapsedNight / nightDuration));
                     }
                 }
 
@@ -1305,7 +1331,7 @@
                 // Enhanced star properties
                 if (this.type === 'star') {
                     // Star personality: each star has unique characteristics
-                    this.baseSize = Math.random() * 1.5 + 0.5; // Base size variation
+                    this.baseSize = Math.random() * 0.6 + 0.2; // Smaller stars (0.2-0.8)
                     this.baseBrightness = Math.random() * 0.5 + 0.5; // 0.5-1.0
 
                     // Star color temperature (white, blue-white, yellow-white)
@@ -1349,6 +1375,18 @@
                     this.opacity = 1;
                     this.tailLength = Math.random() * 60 + 40;
                     this.life = 1;
+                }
+
+                // Rain initialization - wider distribution and faster fall
+                if (this.type === 'rain') {
+                    // Wider spawn area (beyond screen edges for wind effect)
+                    this.x = Math.random() * (canvas.width + 400) - 200; // -200 to width+200
+                    this.y = Math.random() * canvas.height - canvas.height * 0.3; // Staggered start positions
+                    this.speedY = Math.random() * 8 + 12; // Much faster fall (12-20)
+                    this.speedX = Math.random() * 2 - 1; // Wider horizontal range (-1 to 1)
+                    this.size = Math.random() * 1.5 + 0.5; // Thin rain streaks
+                    this.opacity = Math.random() * 0.4 + 0.4; // 0.4-0.8
+                    this.length = Math.random() * 15 + 10; // Rain streak length
                 }
 
                 // Snow initialization
@@ -1425,15 +1463,16 @@
 
                     if (this.y > canvas.height) this.reset();
                 } else {
-                    // Rain falling
-                    const windDrift = (weatherState.windSpeed || 0) * 0.2; // 雨の方が風の影響を強く受ける
+                    // Rain falling with wind effect
+                    const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind influence
 
                     this.y += this.speedY;
                     this.x += this.speedX + windDrift;
 
-                    if (this.y > canvas.height) {
-                        // Create splash effect when hitting ground
-                        if (Math.random() < 0.3) { // 30% chance to create splash
+                    // Reset if out of bounds (bottom or sides due to wind)
+                    if (this.y > canvas.height || this.x < -300 || this.x > canvas.width + 300) {
+                        // Create splash effect when hitting ground (not when blown off-screen)
+                        if (this.y > canvas.height && Math.random() < 0.3) { // 30% chance to create splash
                             rainSplashes.push(new RainSplash(this.x, canvas.height - 5));
                         }
                         this.reset();
@@ -1534,24 +1573,26 @@
                     ctx.fill();
                     ctx.shadowBlur = 0;
                 } else if (this.type === 'rain') {
-                    // Gradient streak for realistic motion blur
-                    const windDrift = (weatherState.windSpeed || 0) * 0.2;
+                    // Gradient streak for realistic motion blur - longer streaks
+                    const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind effect
+                    const streakLength = this.length || 20; // Use custom length
+                    const endX = this.x + this.speedX * 2 + (windDrift * 3);
+                    const endY = this.y + streakLength;
+
                     const gradient = ctx.createLinearGradient(
                         this.x, this.y,
-                        // 描画の終点も風の分だけずらすことで「斜めの線」にする
-                        this.x + this.speedX * 3 + (windDrift * 2), 
-                        this.y + this.speedY * 5
+                        endX, endY
                     );
                     gradient.addColorStop(0, 'rgba(136, 192, 208, 0)');      // Transparent top
-                    gradient.addColorStop(0.5, 'rgba(136, 192, 208, 0.6)');  // Semi-transparent middle
-                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.9)');    // Opaque bottom
+                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.5)');  // Semi-transparent
+                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.8)');    // More opaque bottom
 
                     ctx.strokeStyle = gradient;
-                    ctx.lineWidth = this.size * 1.2;
+                    ctx.lineWidth = this.size;
                     ctx.lineCap = 'round';
                     ctx.beginPath();
                     ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(this.x + this.speedX * 3 + (windDrift * 2), this.y + this.speedY * 5);
+                    ctx.lineTo(endX, endY);
                     ctx.stroke();
                 }
 
@@ -1560,47 +1601,162 @@
         }
 
         // --- Rain Splash Effect ---
-        class RainSplash {
-            constructor(x, y) {
+
+        // Splash droplet particle with physics-based motion
+        class SplashDroplet {
+            constructor(x, y, angle, speed) {
+                // Initial position (impact point)
                 this.x = x;
                 this.y = y;
-                this.radius = 1;
-                this.maxRadius = 4 + Math.random() * 3;
+                this.startY = y;
+
+                // Physics parameters
+                this.vx = Math.cos(angle) * speed; // Horizontal velocity (px/frame)
+                this.vy = Math.sin(angle) * speed; // Vertical velocity (px/frame)
+                this.gravity = 0.4; // Gravity acceleration (px/frame²)
+                this.damping = 0.98; // Air resistance (velocity multiplier)
+                this.restitution = 0.3; // Bounce coefficient (0-1)
+
+                // Visual properties
+                this.size = Math.random() * 1.5 + 0.5; // Droplet size
+                this.opacity = 0.9;
                 this.lifetime = 0;
-                this.maxLifetime = 15; // Frames
-                this.opacity = 0.8;
+                this.maxLifetime = 60; // Frames (~1 second at 60fps)
+                this.bounces = 0;
+                this.maxBounces = 2;
             }
 
             update() {
                 this.lifetime++;
-                // Expand and fade
-                this.radius = this.maxRadius * (this.lifetime / this.maxLifetime);
-                this.opacity = 0.8 * (1 - this.lifetime / this.maxLifetime);
 
-                return this.lifetime >= this.maxLifetime ? 'remove' : null;
+                // Physics: Projectile motion with gravity
+                // x(t) = x₀ + vₓ * t
+                // y(t) = y₀ + vᵧ * t + 0.5 * g * t²
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Apply gravity to vertical velocity
+                // vᵧ(t) = v₀ᵧ + g * t
+                this.vy += this.gravity;
+
+                // Apply air resistance (damping)
+                this.vx *= this.damping;
+                this.vy *= this.damping;
+
+                // Ground collision detection and bounce
+                if (this.y >= canvas.height - 5) {
+                    this.y = canvas.height - 5;
+
+                    if (this.bounces < this.maxBounces && Math.abs(this.vy) > 0.5) {
+                        // Bounce: reverse vertical velocity with energy loss
+                        this.vy *= -this.restitution;
+                        this.bounces++;
+                    } else {
+                        // Stop bouncing, slide to halt
+                        this.vy = 0;
+                        this.vx *= 0.9; // Friction
+                    }
+                }
+
+                // Fade out over lifetime
+                this.opacity = 0.9 * (1 - this.lifetime / this.maxLifetime);
+
+                // Remove when lifetime expires or droplet is barely moving
+                if (this.lifetime >= this.maxLifetime ||
+                    (this.bounces >= this.maxBounces && Math.abs(this.vx) < 0.1 && Math.abs(this.vy) < 0.1)) {
+                    return 'remove';
+                }
+
+                return null;
             }
 
             draw() {
                 ctx.save();
                 ctx.globalAlpha = this.opacity;
 
-                // Small expanding circle
+                // Draw droplet with motion blur
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                gradient.addColorStop(0, 'rgba(136, 192, 208, 1)');
+                gradient.addColorStop(0.5, 'rgba(136, 192, 208, 0.6)');
+                gradient.addColorStop(1, 'rgba(136, 192, 208, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        // Ripple effect at impact point
+        class RainSplash {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 6 + Math.random() * 4; // Larger ripples
+                this.lifetime = 0;
+                this.maxLifetime = 20; // Frames
+                this.opacity = 0.9;
+
+                // Create splash droplets (water particles flying outward)
+                this.droplets = [];
+                const dropletCount = Math.floor(Math.random() * 5) + 4; // 4-8 droplets
+
+                for (let i = 0; i < dropletCount; i++) {
+                    // Angle: mostly upward and outward (60-120 degrees)
+                    const angle = -Math.PI * 0.7 + (Math.random() - 0.5) * Math.PI * 0.6;
+                    // Speed: random initial velocity
+                    const speed = Math.random() * 3 + 2; // 2-5 px/frame
+
+                    this.droplets.push(new SplashDroplet(x, y, angle, speed));
+                }
+            }
+
+            update() {
+                this.lifetime++;
+
+                // Expand ripple with easing (fast start, slow end)
+                const progress = this.lifetime / this.maxLifetime;
+                const easeOut = 1 - Math.pow(1 - progress, 3); // Cubic ease-out
+                this.radius = this.maxRadius * easeOut;
+                this.opacity = 0.9 * (1 - progress);
+
+                // Update splash droplets
+                this.droplets = this.droplets.filter(droplet => droplet.update() !== 'remove');
+
+                return this.lifetime >= this.maxLifetime ? 'remove' : null;
+            }
+
+            draw() {
+                ctx.save();
+
+                // Draw expanding ripple
+                ctx.globalAlpha = this.opacity;
                 ctx.strokeStyle = '#aaddff';
-                ctx.lineWidth = 1.5;
+                ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
                 ctx.stroke();
 
-                // Inner ripple
+                // Inner ripple (secondary wave)
                 if (this.lifetime > 3) {
+                    ctx.globalAlpha = this.opacity * 0.6;
                     ctx.strokeStyle = '#88c0d0';
-                    ctx.lineWidth = 1;
+                    ctx.lineWidth = 1.5;
                     ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.radius * 0.5, 0, Math.PI * 2);
+                    ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
                     ctx.stroke();
                 }
 
                 ctx.restore();
+
+                // Draw splash droplets
+                this.droplets.forEach(droplet => droplet.draw());
             }
         }
 
@@ -1732,37 +1888,40 @@
         // Cloud Manager - Handles 3 parallax layers
         const cloudManager = {
             layers: [[], [], []],
-            maxClouds: 30,
+            maxClouds: 70, // Updated to match new cloud count formula
             initialized: false,
 
             init(weatherCondition) {
                 // Clear existing clouds
                 this.layers = [[], [], []];
 
-                // Determine cloud count based on weather
+                // Determine cloud count based on actual cloud cover data
+                const cloudCover = weatherState.cloudCover || 0; // 0-100%
                 let cloudCount;
-                switch(weatherCondition) {
-                    case 'Clear':
-                        cloudCount = [3, 4, 2]; // Back, mid, front
-                        break;
-                    case 'Clouds':
-                        cloudCount = [8, 10, 7];
-                        break;
-                    case 'Rain':
-                        cloudCount = [10, 12, 8];
-                        break;
-                    case 'Snow':
-                        cloudCount = [7, 9, 6];
-                        break;
-                    case 'Thunderstorm':
-                        cloudCount = [12, 15, 10];
-                        break;
-                    case 'Mist':
-                    case 'Fog':
-                        cloudCount = [0, 0, 0]; // No high clouds for fog
-                        break;
-                    default:
-                        cloudCount = [3, 4, 2];
+
+                // Special cases for specific weather conditions
+                if (weatherCondition === 'Mist' || weatherCondition === 'Fog') {
+                    cloudCount = [0, 0, 0]; // No high clouds for fog
+                } else if (weatherCondition === 'Thunderstorm') {
+                    // Thunderstorm: dense, dark clouds (boost cloud count)
+                    const baseCount = Math.floor(cloudCover * 0.15); // 0-15 per layer
+                    cloudCount = [
+                        Math.max(10, baseCount),
+                        Math.max(12, baseCount + 2),
+                        Math.max(8, baseCount - 2)
+                    ];
+                } else {
+                    // Use actual cloud cover percentage to determine count
+                    // 0% = minimal clouds, 100% = maximum clouds
+                    const baseFactor = cloudCover / 100; // 0.0 - 1.0
+
+                    // Layer distribution: back (30%), mid (40%), front (30%)
+                    const totalClouds = Math.floor(cloudCover * 0.7); // 0-70 clouds max
+                    cloudCount = [
+                        Math.max(1, Math.floor(totalClouds * 0.30)), // Back layer
+                        Math.max(2, Math.floor(totalClouds * 0.40)), // Mid layer (most clouds)
+                        Math.max(1, Math.floor(totalClouds * 0.30))  // Front layer
+                    ];
                 }
 
                 // Create clouds for each layer
@@ -1773,7 +1932,8 @@
                 }
 
                 this.initialized = true;
-                console.log(`Clouds initialized: ${weatherCondition} (${cloudCount[0] + cloudCount[1] + cloudCount[2]} total clouds)`);
+                const totalCloudCount = cloudCount[0] + cloudCount[1] + cloudCount[2];
+                console.log(`Clouds initialized: ${weatherCondition}, Cloud cover: ${cloudCover}% (${totalCloudCount} total clouds: ${cloudCount[0]}/${cloudCount[1]}/${cloudCount[2]})`);
             },
 
             updateClouds() {
@@ -2028,8 +2188,8 @@
             console.log(`Particles created: total=${particles.length}, currentType=${currentParticleType}`);
         }
 
-        // Create initial particles
-        createParticles('star', 200);
+        // Create initial particles - full starry sky
+        createParticles('star', 800);
 
         // Shooting star management
         let lastShootingStarTime = Date.now();
@@ -2056,11 +2216,8 @@
                 return false;
             });
 
-            // Debug: Log particle info every 120 frames (every 2 seconds at 60fps)
+            // Track frame count (for shooting star timing, etc.)
             frameCount++;
-            if (frameCount % 120 === 0) {
-                console.log(`Animation frame ${frameCount}: particles=${particles.length}, type=${currentParticleType}, rainSplashes=${rainSplashes.length}`);
-            }
 
             // EXISTING: Add shooting stars randomly at night
             const hour = new Date().getHours();
@@ -2095,24 +2252,21 @@
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
-            console.log(`updateParticleType called: hour=${hour}, weatherCondition=${weatherState.condition}, currentType=${currentParticleType}`);
-
             // Priority 1: Weather-based particles (if weather is available)
             if (weatherState.condition) {
                 if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle' || weatherState.condition === 'Thunderstorm') {
                     // Show rain particles for rainy weather (unless manual rain button overrides)
                     const rainButtonActive = document.getElementById('btn-rain').classList.contains('active');
-                    console.log(`Rain weather detected. currentType=${currentParticleType}, rainButtonActive=${rainButtonActive}`);
 
                     if (currentParticleType !== 'rain' && !rainButtonActive) {
-                        // Variable rain intensity based on weather
+                        // Variable rain intensity based on weather - increased for continuous effect
                         let rainCount;
                         if (weatherState.condition === 'Drizzle') {
-                            rainCount = 100; // Light drizzle
+                            rainCount = 200; // Light drizzle (increased)
                         } else if (weatherState.condition === 'Thunderstorm') {
-                            rainCount = 250; // Heavy rain during storm
+                            rainCount = 450; // Heavy rain during storm (increased)
                         } else {
-                            rainCount = 170; // Moderate rain
+                            rainCount = 350; // Moderate rain (increased)
                         }
                         console.log(`Creating rain particles: count=${rainCount}`);
                         createParticles('rain', rainCount);
@@ -2129,7 +2283,7 @@
 
             // Priority 2: Time-based particles (stars at night)
             if (hour >= 20 || hour < 5) {
-                if (currentParticleType !== 'star') createParticles('star', 200);
+                if (currentParticleType !== 'star') createParticles('star', 800);
             } else {
                 if (currentParticleType !== 'none' && particles.length > 0 && currentParticleType !== 'rain') {
                     // Keep rain if manually activated
@@ -2172,13 +2326,7 @@
 
         // Extend time-of-day system
         const originalUpdateTimeOfDay = updateTimeOfDay;
-        let lastUpdateTimeOfDayCall = 0;
         updateTimeOfDay = function(hour, minutes) {
-            const now = Date.now();
-            const timeSinceLastCall = now - lastUpdateTimeOfDayCall;
-            console.log(`updateTimeOfDay called: hour=${hour}, minutes=${minutes}, timeSinceLastCall=${timeSinceLastCall}ms`);
-            lastUpdateTimeOfDayCall = now;
-
             originalUpdateTimeOfDay(hour, minutes);
             updateParticleType(hour);
         };
@@ -2235,7 +2383,7 @@
             setTimeout(() => {
                 const isRainActive = document.getElementById('btn-rain').classList.contains('active');
                 if (isRainActive) {
-                    createParticles('rain', 150);
+                    createParticles('rain', 350); // Increased for continuous effect
                 } else {
                     // When rain stops, return to time-based particles
                     const hour = new Date().getHours();
@@ -2528,6 +2676,216 @@
                 document.getElementById('shortcut-hint').classList.remove('show');
             }, 5000);
         }, 2000);
+
+
+        // --- Developer Test Mode (Override System) ---
+
+        // Override variables
+        let weatherOverride = null;
+        let timeOverride = null;
+        let clockInterval = null;
+
+        // Original Date object
+        const OriginalDate = Date;
+
+        // Override Date constructor for time simulation
+        function createDateOverride() {
+            return class extends OriginalDate {
+                constructor(...args) {
+                    if (args.length === 0 && timeOverride) {
+                        // No arguments: return overridden time
+                        super();
+                        const base = new OriginalDate();
+                        base.setHours(timeOverride.hours);
+                        base.setMinutes(timeOverride.minutes);
+                        base.setSeconds(timeOverride.seconds || 0);
+                        return base;
+                    }
+                    super(...args);
+                }
+
+                static now() {
+                    if (timeOverride) {
+                        const base = new OriginalDate();
+                        base.setHours(timeOverride.hours);
+                        base.setMinutes(timeOverride.minutes);
+                        base.setSeconds(timeOverride.seconds || 0);
+                        return base.getTime();
+                    }
+                    return OriginalDate.now();
+                }
+            };
+        }
+
+
+        // --- Global Helper Functions (accessible from browser console) ---
+
+        // Display current weather information
+        window.showWeather = function() {
+            console.log('\n=== CURRENT WEATHER INFORMATION ===');
+            console.log(`Location: ${weatherState.city || 'Unknown'}`);
+            console.log(`Coordinates: ${weatherState.coords.lat.toFixed(4)}, ${weatherState.coords.lon.toFixed(4)}`);
+            console.log(`Condition: ${weatherState.condition || 'Unknown'}`);
+            console.log(`Temperature: ${weatherState.temp ? weatherState.temp.toFixed(1) + '°C' : 'Unknown'}`);
+            console.log(`Wind Speed: ${weatherState.windSpeed ? weatherState.windSpeed.toFixed(1) + ' km/h' : 'Unknown'}`);
+            console.log(`Cloud Cover: ${weatherState.cloudCover !== undefined ? weatherState.cloudCover + '%' : 'Unknown'}`);
+            console.log(`Moon Phase: ${weatherState.moonPhase !== undefined ? (weatherState.moonPhase * 100).toFixed(1) + '%' : 'Unknown'} (0%=New, 50%=Full)`);
+            console.log(`Sunrise: ${formatTime(weatherState.sunrise)}`);
+            console.log(`Sunset: ${formatTime(weatherState.sunset)}`);
+            console.log('===================================\n');
+            console.log('Tip: Type "weatherState" to see the raw data object');
+        };
+
+        // Display cloud information
+        window.showClouds = function() {
+            console.log('\n=== CLOUD INFORMATION ===');
+            console.log(`Cloud Cover: ${weatherState.cloudCover || 0}%`);
+            console.log(`Total Clouds: ${cloudManager.layers[0].length + cloudManager.layers[1].length + cloudManager.layers[2].length}`);
+            console.log(`  - Background layer: ${cloudManager.layers[0].length} clouds`);
+            console.log(`  - Middle layer: ${cloudManager.layers[1].length} clouds`);
+            console.log(`  - Front layer: ${cloudManager.layers[2].length} clouds`);
+            console.log('=========================\n');
+        };
+
+        // Display particle information
+        window.showParticles = function() {
+            console.log('\n=== PARTICLE INFORMATION ===');
+            console.log(`Current Type: ${currentParticleType}`);
+            console.log(`Active Particles: ${particles.length}`);
+            console.log(`Rain Splashes: ${rainSplashes.length}`);
+            console.log(`Lightning Active: ${lightningManager.active}`);
+            console.log('============================\n');
+        };
+
+        // --- Developer Test Mode Functions ---
+
+        // Set weather condition
+        window.setWeather = function(condition) {
+            const validConditions = ['Clear', 'Clouds', 'Rain', 'Drizzle', 'Snow', 'Thunderstorm', 'Mist', 'Fog'];
+
+            if (!validConditions.includes(condition)) {
+                console.error(`Invalid condition. Use one of: ${validConditions.join(', ')}`);
+                return;
+            }
+
+            weatherOverride = condition;
+            weatherState.condition = condition;
+
+            console.log(`%c✓ Weather set to: ${condition}`, 'color: #4CAF50; font-weight: bold');
+
+            // Update visual effects
+            updateWeatherEffects();
+
+            // Update particles
+            const now = new OriginalDate();
+            updateParticleType(now.getHours());
+        };
+
+        // Set time (24-hour format)
+        window.setTime = function(hours, minutes = 0, seconds = 0) {
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+                console.error('Invalid time. Hours: 0-23, Minutes: 0-59, Seconds: 0-59');
+                return;
+            }
+
+            timeOverride = { hours, minutes, seconds };
+
+            // Override global Date
+            window.Date = createDateOverride();
+
+            console.log(`%c✓ Time set to: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`, 'color: #4CAF50; font-weight: bold');
+
+            // Force update clock and time-of-day effects
+            updateClock();
+            updateTimeOfDay(hours, minutes);
+            updateCelestialBody(hours, minutes);
+        };
+
+        // Reset weather to actual conditions
+        window.resetWeather = function() {
+            weatherOverride = null;
+            console.log('%c✓ Weather reset to actual conditions', 'color: #FF9800; font-weight: bold');
+            console.log('Reload page to fetch fresh weather data');
+        };
+
+        // Reset time to actual time
+        window.resetTime = function() {
+            timeOverride = null;
+            window.Date = OriginalDate;
+
+            console.log('%c✓ Time reset to actual time', 'color: #FF9800; font-weight: bold');
+
+            // Force update
+            updateClock();
+            const now = new OriginalDate();
+            updateTimeOfDay(now.getHours(), now.getMinutes());
+            updateCelestialBody(now.getHours(), now.getMinutes());
+        };
+
+        // Quick time presets
+        window.setTimePreset = function(preset) {
+            const presets = {
+                'midnight': [0, 0],
+                'dawn': [5, 30],
+                'sunrise': [6, 30],
+                'morning': [9, 0],
+                'noon': [12, 0],
+                'afternoon': [15, 0],
+                'sunset': [18, 0],
+                'dusk': [19, 30],
+                'night': [22, 0]
+            };
+
+            if (!presets[preset]) {
+                console.error(`Invalid preset. Use one of: ${Object.keys(presets).join(', ')}`);
+                return;
+            }
+
+            const [h, m] = presets[preset];
+            setTime(h, m);
+            console.log(`%c✓ Time preset "${preset}" applied`, 'color: #2196F3; font-weight: bold');
+        };
+
+        // Show current test mode status
+        window.testMode = function() {
+            console.log('\n=== TEST MODE STATUS ===');
+            console.log(`Weather Override: ${weatherOverride || 'None (using actual weather)'}`);
+            console.log(`Time Override: ${timeOverride ? `${String(timeOverride.hours).padStart(2, '0')}:${String(timeOverride.minutes).padStart(2, '0')}` : 'None (using actual time)'}`);
+            console.log('========================\n');
+        };
+
+        // Display all available console commands
+        window.help = function() {
+            console.log('\n=== AVAILABLE CONSOLE COMMANDS ===');
+            console.log('\n📊 Information:');
+            console.log('  showWeather()   - Display current weather data');
+            console.log('  showClouds()    - Display cloud information');
+            console.log('  showParticles() - Display particle information');
+            console.log('  weatherState    - Access raw weather data object');
+
+            console.log('\n🧪 Test Mode (Developer):');
+            console.log('  setWeather(condition) - Set weather (Clear/Clouds/Rain/Drizzle/Snow/Thunderstorm/Mist/Fog)');
+            console.log('  setTime(h, m, s)      - Set time (24-hour format)');
+            console.log('  setTimePreset(preset) - Quick time (midnight/dawn/sunrise/morning/noon/afternoon/sunset/dusk/night)');
+            console.log('  resetWeather()        - Reset to actual weather');
+            console.log('  resetTime()           - Reset to actual time');
+            console.log('  testMode()            - Show test mode status');
+
+            console.log('\n❓ Help:');
+            console.log('  help()          - Show this help message');
+            console.log('===================================\n');
+
+            console.log('💡 Examples:');
+            console.log('  setWeather("Rain")');
+            console.log('  setTime(14, 30)  // 2:30 PM');
+            console.log('  setTimePreset("sunset")');
+        };
+
+        // Auto-display help on page load
+        console.log('%c🌤️ Ambient Clock Console Commands', 'font-size: 16px; font-weight: bold; color: #4CAF50');
+        console.log('Type help() to see available commands');
+        console.log('%c🧪 Test Mode Available', 'color: #2196F3; font-weight: bold');
+        console.log('Try: setWeather("Rain") or setTimePreset("sunset")');
 
     </script>
 </body>
