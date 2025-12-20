@@ -1,7 +1,5 @@
-
-
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en-US">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,7 +22,7 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* 背景エリア */
+        /* Background area */
         #bg-container {
             position: absolute;
             top: 0;
@@ -47,7 +45,7 @@
             pointer-events: none;
         }
 
-        /* 画面全体の明るさ調整用オーバーレイ */
+        /* Screen brightness adjustment overlay */
         #dimmer-overlay {
             position: absolute;
             top: 0;
@@ -55,13 +53,13 @@
             width: 100%;
             height: 100%;
             background-color: black;
-            opacity: 0; /* 初期値は明るい */
+            opacity: 0; /* Initial value is bright */
             z-index: 3;
-            pointer-events: none; /* クリックを透過させる */
+            pointer-events: none; /* Make clicks pass through */
             transition: opacity 0.1s;
         }
 
-        /* 時計エリア */
+        /* Clock area */
         #clock-container {
             position: absolute;
             top: 50%;
@@ -82,11 +80,11 @@
                 0 0 80px rgba(255, 255, 255, 0.2),
                 0 4px 30px rgba(0, 0, 0, 0.5);
 
-            /* 重要：数字の幅を固定する設定 */
+            /* Important: Fixed-width numbers */
             font-feature-settings: "tnum";
             font-variant-numeric: tabular-nums;
 
-            /* グラデーションテキスト効果 */
+            /* Gradient text effect */
             background: linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.8) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -105,7 +103,7 @@
             color: rgba(255, 255, 255, 0.9);
         }
 
-        /* アナログ時計 */
+        /* Analog clock */
         #analog-clock {
             display: none;
             width: 300px;
@@ -199,7 +197,7 @@
             transform-origin: center 150px;
         }
 
-        /* コントロールパネル */
+        /* Control panel */
         #controls-wrapper {
             position: absolute;
             bottom: 30px;
@@ -234,11 +232,11 @@
 
         .fade-out {
             opacity: 0;
-            transform: translateY(20px); /* 下に沈むように消える */
+            transform: translateY(20px); /* Fade out downward */
             pointer-events: none;
         }
 
-        /* サウンド・明るさ コントロール */
+        /* Sound and brightness controls */
         .control-group {
             display: flex;
             flex-direction: column;
@@ -271,7 +269,7 @@
             50% { transform: scale(1.05); }
         }
 
-        /* スライダーのカスタマイズ */
+        /* Slider customization */
         input[type="range"] {
             -webkit-appearance: none;
             width: 80px;
@@ -305,7 +303,7 @@
 
         .divider { width: 1px; height: 40px; background: rgba(255,255,255,0.1); }
 
-        /* スイッチボタン */
+        /* Switch button */
         .btn-text {
             background: transparent;
             border: 1px solid rgba(255,255,255,0.3);
@@ -334,7 +332,7 @@
             box-shadow: 0 0 30px rgba(255,255,255,0.5);
         }
 
-        /* 太陽・月 */
+        /* Sun and Moon */
         #celestial-body {
             position: absolute;
             width: 80px;
@@ -361,7 +359,7 @@
                 inset -10px -10px 20px rgba(0, 0, 0, 0.1);
         }
 
-        /* ツールパネル（ポモドーロ・アラーム） */
+        /* Tools panel (Pomodoro and Alarm) */
         #tools-panel {
             position: absolute;
             top: 30px;
@@ -498,11 +496,11 @@
 
     <div id="dimmer-overlay"></div>
 
-    <div id="clock-container" title="ダブルクリックで全画面">
+    <div id="clock-container" title="Double-click for fullscreen">
         <div id="time">00:00:00</div>
         <div id="date">LOADING...</div>
 
-        <!-- アナログ時計 -->
+        <!-- Analog clock -->
         <div id="analog-clock">
             <div class="clock-center"></div>
             <div class="clock-hand hour-hand" id="hour-hand"></div>
@@ -514,12 +512,12 @@
     <div id="controls-wrapper">
         <div id="controls">
             <div class="control-group">
-                <div class="icon" id="btn-bonfire" title="焚き火">🔥</div>
+                <div class="icon" id="btn-bonfire" title="Bonfire">🔥</div>
                 <input type="range" id="vol-bonfire" min="0" max="1" step="0.01" value="0.5">
             </div>
-            
+
             <div class="control-group">
-                <div class="icon" id="btn-rain" title="雨">🌧️</div>
+                <div class="icon" id="btn-rain" title="Rain">🌧️</div>
                 <input type="range" id="vol-rain" min="0" max="1" step="0.01" value="0.5">
             </div>
 
@@ -527,32 +525,32 @@
 
             <div class="control-group">
                 <div class="icon" style="cursor: default; opacity: 0.8;">💡</div>
-                <input type="range" id="dimmer-range" min="0" max="0.9" step="0.01" value="0" title="画面の明るさ">
+                <input type="range" id="dimmer-range" min="0" max="0.9" step="0.01" value="0" title="Screen brightness">
             </div>
 
             <div class="divider"></div>
 
-            <div class="icon" id="btn-clock-toggle" title="時計切り替え">🕐</div>
+            <div class="icon" id="btn-clock-toggle" title="Toggle clock">🕐</div>
 
             <div class="divider"></div>
 
-            <button class="btn-text" id="btn-wakelock">常時表示 OFF</button>
+            <button class="btn-text" id="btn-wakelock">Always On OFF</button>
         </div>
     </div>
 
-    <!-- ツールパネル -->
+    <!-- Tools panel -->
     <div id="tools-panel">
         <div class="tool-section">
-            <div class="tool-title">ポモドーロタイマー</div>
-            <div class="pomodoro-status" id="pomodoro-status">準備完了</div>
+            <div class="tool-title">Pomodoro Timer</div>
+            <div class="pomodoro-status" id="pomodoro-status">Ready</div>
             <div class="pomodoro-display" id="pomodoro-time">25:00</div>
             <div class="tool-buttons">
-                <button class="tool-btn" id="pomodoro-start">開始</button>
-                <button class="tool-btn" id="pomodoro-reset">リセット</button>
+                <button class="tool-btn" id="pomodoro-start">Start</button>
+                <button class="tool-btn" id="pomodoro-reset">Reset</button>
             </div>
         </div>
         <div class="tool-section">
-            <div class="tool-title">アラーム</div>
+            <div class="tool-title">Alarm</div>
             <input type="time" class="alarm-input" id="alarm-time" value="07:00">
             <div class="tool-buttons">
                 <button class="tool-btn" id="alarm-toggle">ON</button>
@@ -560,25 +558,109 @@
         </div>
     </div>
 
-    <!-- ショートカットヒント -->
+    <!-- Shortcut hints -->
     <div class="shortcut-hint" id="shortcut-hint">
-        T: ツール | Space: UI切替 | F: 全画面
+        T: Tools | Space: Toggle UI | F: Fullscreen
     </div>
 
     <audio id="audio-bonfire" loop src="bonfire.mp3"></audio>
     <audio id="audio-rain" loop src="rain.mp3"></audio>
 
-    <!-- 時間帯に応じた環境音 -->
+    <!-- Ambient sounds based on time of day -->
     <audio id="audio-birds" loop src="https://assets.mixkit.co/active_storage/sfx/2462/2462-preview.mp3"></audio>
     <audio id="audio-crickets" loop src="https://assets.mixkit.co/active_storage/sfx/1730/1730-preview.mp3"></audio>
 
     <script>
-        // --- 1. 時計ロジック + 時間帯システム ---
+        // --- 1. Weather System ---
+        const weatherState = {
+            condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
+            temp: null,
+            city: null,
+            coords: { lat: 35.6762, lon: 139.6503 }, // Tokyo fallback
+            apiKey: 'YOUR_API_KEY_HERE' // User must replace with their OpenWeatherMap API key
+        };
+
+        // Get user's geolocation
+        function fetchUserLocation() {
+            return new Promise((resolve) => {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            resolve({
+                                lat: position.coords.latitude,
+                                lon: position.coords.longitude
+                            });
+                        },
+                        (error) => {
+                            console.log('Geolocation denied or failed, using Tokyo as fallback');
+                            resolve(weatherState.coords); // Fallback to Tokyo
+                        },
+                        { timeout: 10000 }
+                    );
+                } else {
+                    console.log('Geolocation not supported, using Tokyo as fallback');
+                    resolve(weatherState.coords); // Fallback to Tokyo
+                }
+            });
+        }
+
+        // Fetch weather data from OpenWeatherMap API
+        async function fetchWeatherData(lat, lon) {
+            if (weatherState.apiKey === 'YOUR_API_KEY_HERE') {
+                console.warn('OpenWeatherMap API key not configured. Please add your API key to enable weather features.');
+                return null;
+            }
+
+            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${weatherState.apiKey}&units=metric`;
+
+            try {
+                const response = await fetch(url, { timeout: 10000 });
+                if (!response.ok) {
+                    throw new Error(`Weather API returned ${response.status}`);
+                }
+                const data = await response.json();
+
+                return {
+                    condition: data.weather[0].main, // Clear, Clouds, Rain, Snow, etc.
+                    temp: data.main.temp,
+                    city: data.name
+                };
+            } catch (error) {
+                console.error('Failed to fetch weather data:', error);
+                return null;
+            }
+        }
+
+        // Initialize weather system
+        async function initWeather() {
+            try {
+                const coords = await fetchUserLocation();
+                weatherState.coords = coords;
+
+                const weather = await fetchWeatherData(coords.lat, coords.lon);
+                if (weather) {
+                    weatherState.condition = weather.condition;
+                    weatherState.temp = weather.temp;
+                    weatherState.city = weather.city;
+                    console.log(`Weather loaded: ${weather.condition} in ${weather.city}`);
+
+                    // Update background and particles immediately
+                    const now = new Date();
+                    updateTimeOfDay(now.getHours(), now.getMinutes());
+                    updateParticleType(now.getHours());
+                }
+            } catch (error) {
+                console.error('Weather initialization failed:', error);
+            }
+        }
+
+
+        // --- 2. Clock Logic + Time of Day System ---
         let isAnalogClock = false;
 
         function updateClock() {
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('ja-JP', { hour12: false });
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
             const dateOptions = { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' };
             const dateStr = now.toLocaleDateString('en-US', dateOptions);
 
@@ -614,9 +696,9 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // 色の補間関数（16進数カラーコード対応）
+        // Color interpolation function (supports hex color codes)
         function interpolateColor(color1, color2, factor) {
-            // 16進数カラーコードをRGBに変換
+            // Convert hex color code to RGB
             const hexToRgb = (hex) => {
                 const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
                 return result ? [
@@ -629,12 +711,162 @@
             const c1 = hexToRgb(color1);
             const c2 = hexToRgb(color2);
 
-            if (!c1 || !c2) return color1; // エラー時は元の色を返す
+            if (!c1 || !c2) return color1; // Return original color on error
 
             const r = Math.round(c1[0] + (c2[0] - c1[0]) * factor);
             const g = Math.round(c1[1] + (c2[1] - c1[1]) * factor);
             const b = Math.round(c1[2] + (c2[2] - c1[2]) * factor);
             return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // Weather color blending utilities
+        function parseRgb(colorString) {
+            // Parse rgb(r, g, b) or hex color to [r, g, b]
+            const rgbMatch = colorString.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            if (rgbMatch) {
+                return [parseInt(rgbMatch[1]), parseInt(rgbMatch[2]), parseInt(rgbMatch[3])];
+            }
+
+            const hexMatch = colorString.match(/#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i);
+            if (hexMatch) {
+                return [parseInt(hexMatch[1], 16), parseInt(hexMatch[2], 16), parseInt(hexMatch[3], 16)];
+            }
+
+            return [128, 128, 128]; // Fallback gray
+        }
+
+        function rgbToString(r, g, b) {
+            return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+        }
+
+        function rgbToHsl(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, l = (max + min) / 2;
+
+            if (max === min) {
+                h = s = 0;
+            } else {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                    case g: h = ((b - r) / d + 2) / 6; break;
+                    case b: h = ((r - g) / d + 4) / 6; break;
+                }
+            }
+            return [h * 360, s * 100, l * 100];
+        }
+
+        function hslToRgb(h, s, l) {
+            h /= 360; s /= 100; l /= 100;
+            let r, g, b;
+
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [r * 255, g * 255, b * 255];
+        }
+
+        function adjustSaturation(rgb, factor) {
+            const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+            return hslToRgb(h, s * factor, l);
+        }
+
+        function adjustBrightness(rgb, factor) {
+            const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+            return hslToRgb(h, s, l * factor);
+        }
+
+        function applyTint(rgb, tint, brightnessFactor) {
+            let [r, g, b] = rgb;
+            r = Math.max(0, Math.min(255, r + tint.r));
+            g = Math.max(0, Math.min(255, g + tint.g));
+            b = Math.max(0, Math.min(255, b + tint.b));
+
+            const [h, s, l] = rgbToHsl(r, g, b);
+            return hslToRgb(h, s, l * brightnessFactor);
+        }
+
+        // Blend weather effects with time-of-day colors
+        function blendWeatherColors(color1, color2, color3, condition) {
+            if (!condition) return [color1, color2, color3];
+
+            const rgb1 = parseRgb(color1);
+            const rgb2 = parseRgb(color2);
+            const rgb3 = parseRgb(color3);
+
+            let adjusted1, adjusted2, adjusted3;
+
+            switch(condition) {
+                case 'Clear':
+                    // Enhance saturation for more vibrant colors
+                    adjusted1 = adjustSaturation(rgb1, 1.15);
+                    adjusted2 = adjustSaturation(rgb2, 1.15);
+                    adjusted3 = adjustSaturation(rgb3, 1.15);
+                    break;
+
+                case 'Clouds':
+                    // Desaturate and add gray overlay
+                    adjusted1 = adjustSaturation(rgb1, 0.7);
+                    adjusted2 = adjustSaturation(rgb2, 0.7);
+                    adjusted3 = adjustSaturation(rgb3, 0.7);
+                    break;
+
+                case 'Rain':
+                case 'Drizzle':
+                    // Blue tint and reduce brightness
+                    adjusted1 = applyTint(rgb1, {r: -20, g: -10, b: 20}, 0.85);
+                    adjusted2 = applyTint(rgb2, {r: -20, g: -10, b: 20}, 0.85);
+                    adjusted3 = applyTint(rgb3, {r: -20, g: -10, b: 20}, 0.85);
+                    break;
+
+                case 'Snow':
+                    // White/cyan tint and increase brightness
+                    adjusted1 = applyTint(rgb1, {r: 30, g: 30, b: 50}, 1.1);
+                    adjusted2 = applyTint(rgb2, {r: 30, g: 30, b: 50}, 1.1);
+                    adjusted3 = applyTint(rgb3, {r: 30, g: 30, b: 50}, 1.1);
+                    break;
+
+                case 'Thunderstorm':
+                    // Darken significantly with purple tint
+                    adjusted1 = applyTint(rgb1, {r: 10, g: -20, b: 30}, 0.6);
+                    adjusted2 = applyTint(rgb2, {r: 10, g: -20, b: 30}, 0.6);
+                    adjusted3 = applyTint(rgb3, {r: 10, g: -20, b: 30}, 0.6);
+                    break;
+
+                case 'Mist':
+                case 'Fog':
+                case 'Haze':
+                    // Heavy desaturation with whitish overlay
+                    adjusted1 = applyTint(adjustSaturation(rgb1, 0.4), {r: 50, g: 50, b: 50}, 1.0);
+                    adjusted2 = applyTint(adjustSaturation(rgb2, 0.4), {r: 50, g: 50, b: 50}, 1.0);
+                    adjusted3 = applyTint(adjustSaturation(rgb3, 0.4), {r: 50, g: 50, b: 50}, 1.0);
+                    break;
+
+                default:
+                    return [color1, color2, color3];
+            }
+
+            return [
+                rgbToString(adjusted1[0], adjusted1[1], adjusted1[2]),
+                rgbToString(adjusted2[0], adjusted2[1], adjusted2[2]),
+                rgbToString(adjusted3[0], adjusted3[1], adjusted3[2])
+            ];
         }
 
         // 時間帯判定と背景更新（分単位で滑らかに変化）
@@ -675,10 +907,15 @@
             const timeDiff = afterGrad.time - beforeGrad.time;
             const progress = (totalMinutes - beforeGrad.time) / timeDiff;
 
-            // 各色を補間
-            const color1 = interpolateColor(beforeGrad.colors[0], afterGrad.colors[0], progress);
-            const color2 = interpolateColor(beforeGrad.colors[1], afterGrad.colors[1], progress);
-            const color3 = interpolateColor(beforeGrad.colors[2], afterGrad.colors[2], progress);
+            // Interpolate each color
+            let color1 = interpolateColor(beforeGrad.colors[0], afterGrad.colors[0], progress);
+            let color2 = interpolateColor(beforeGrad.colors[1], afterGrad.colors[1], progress);
+            let color3 = interpolateColor(beforeGrad.colors[2], afterGrad.colors[2], progress);
+
+            // Apply weather color blending if available
+            if (weatherState.condition) {
+                [color1, color2, color3] = blendWeatherColors(color1, color2, color3, weatherState.condition);
+            }
 
             const gradient = `linear-gradient(to bottom, ${color1} 0%, ${color2} 50%, ${color3} 100%)`;
             bgContainer.style.background = gradient;
@@ -737,7 +974,7 @@
         }
 
 
-        // --- 2. 没入モード (マウス静止でUIを隠す) ---
+        // --- 2. Immersive Mode (Hide UI when mouse is idle) ---
         const controlsWrapper = document.getElementById('controls-wrapper');
         let idleTimer;
 
@@ -748,8 +985,8 @@
             
             idleTimer = setTimeout(() => {
                 controlsWrapper.classList.add('fade-out');
-                document.body.style.cursor = 'none'; // カーソルも隠す
-            }, 3000); // 3秒後
+                document.body.style.cursor = 'none'; // Hide cursor too
+            }, 3000); // After 3 seconds
         }
 
         window.addEventListener('mousemove', resetIdleTimer);
@@ -757,11 +994,11 @@
         resetIdleTimer();
 
 
-        // --- 3. パーティクルシステム (Canvas) ---
+        // --- 3. Particle System (Canvas) ---
         const canvas = document.getElementById('particle-canvas');
         const ctx = canvas.getContext('2d');
 
-        // Canvas サイズ設定
+        // Canvas size settings
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -769,7 +1006,7 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
-        // パーティクルクラス
+        // Particle class
         class Particle {
             constructor(type) {
                 this.type = type;
@@ -786,37 +1023,56 @@
                 this.twinkleSpeed = Math.random() * 0.02 + 0.01;
                 this.twinklePhase = Math.random() * Math.PI * 2;
 
-                // 流れ星専用の初期化
+                // Shooting star initialization
                 if (this.type === 'shootingStar') {
-                    this.x = Math.random() * canvas.width * 0.8 + canvas.width * 0.2; // 右上から
-                    this.y = Math.random() * canvas.height * 0.3; // 上部から
-                    this.speedX = -(Math.random() * 8 + 6); // 左へ速く
-                    this.speedY = Math.random() * 4 + 3; // 下へ
+                    this.x = Math.random() * canvas.width * 0.8 + canvas.width * 0.2;
+                    this.y = Math.random() * canvas.height * 0.3;
+                    this.speedX = -(Math.random() * 8 + 6);
+                    this.speedY = Math.random() * 4 + 3;
                     this.size = Math.random() * 1.5 + 1;
                     this.opacity = 1;
                     this.tailLength = Math.random() * 60 + 40;
-                    this.life = 1; // フェードアウト用
+                    this.life = 1;
+                }
+
+                // Snow initialization
+                if (this.type === 'snow') {
+                    this.speedY = Math.random() * 0.8 + 0.3; // Slower fall
+                    this.speedX = Math.random() * 0.3 - 0.15; // Gentle horizontal drift
+                    this.size = Math.random() * 3 + 2; // Slightly larger
+                    this.opacity = Math.random() * 0.6 + 0.4;
+                    this.driftOffset = Math.random() * Math.PI * 2; // For sine wave
+                    this.driftSpeed = Math.random() * 0.02 + 0.01;
                 }
             }
 
             update() {
                 if (this.type === 'star') {
-                    // 星のきらめき
+                    // Star twinkling
                     this.twinklePhase += this.twinkleSpeed;
                     this.opacity = 0.3 + Math.sin(this.twinklePhase) * 0.4;
                 } else if (this.type === 'shootingStar') {
-                    // 流れ星の動き
+                    // Shooting star movement
                     this.x += this.speedX;
                     this.y += this.speedY;
-                    this.life -= 0.008; // ゆっくりフェードアウト
+                    this.life -= 0.008;
                     this.opacity = this.life;
 
-                    // 画面外に出たら削除
+                    // Remove when off-screen
                     if (this.life <= 0 || this.x < -100 || this.y > canvas.height + 100) {
                         return 'remove';
                     }
+                } else if (this.type === 'snow') {
+                    // Snow movement with drift
+                    this.driftOffset += this.driftSpeed;
+                    this.y += this.speedY;
+                    this.x += this.speedX + Math.sin(this.driftOffset) * 0.5; // Sine wave drift
+
+                    if (this.y > canvas.height) {
+                        this.reset();
+                    }
                 } else {
-                    // 雨や雪の落下
+                    // Rain falling
                     this.y += this.speedY;
                     this.x += this.speedX;
 
@@ -836,7 +1092,7 @@
                     ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                     ctx.fill();
                 } else if (this.type === 'shootingStar') {
-                    // 流れ星の尾（グラデーション）
+                    // Shooting star tail (gradient)
                     const gradient = ctx.createLinearGradient(
                         this.x, this.y,
                         this.x - this.speedX * 0.3, this.y - this.speedY * 0.3
@@ -845,7 +1101,7 @@
                     gradient.addColorStop(0.5, 'rgba(200, 220, 255, ' + (this.opacity * 0.5) + ')');
                     gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
 
-                    // 尾を描画
+                    // Draw tail
                     ctx.strokeStyle = gradient;
                     ctx.lineWidth = this.size * 2;
                     ctx.lineCap = 'round';
@@ -854,12 +1110,21 @@
                     ctx.lineTo(this.x - this.speedX * 0.3, this.y - this.speedY * 0.3);
                     ctx.stroke();
 
-                    // 流れ星の頭部（明るい点）
+                    // Draw head (bright dot)
                     ctx.shadowBlur = 15;
                     ctx.shadowColor = 'rgba(255, 255, 255, ' + this.opacity + ')';
                     ctx.fillStyle = '#ffffff';
                     ctx.beginPath();
                     ctx.arc(this.x, this.y, this.size * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                } else if (this.type === 'snow') {
+                    // Snow - white circle with glow
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = 'rgba(255, 255, 255, ' + (this.opacity * 0.8) + ')';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.shadowBlur = 0;
                 } else if (this.type === 'rain') {
@@ -875,7 +1140,7 @@
             }
         }
 
-        // パーティクル配列
+        // Particle array
         let particles = [];
         let currentParticleType = 'star';
 
@@ -887,18 +1152,18 @@
             }
         }
 
-        // 初期パーティクル作成
+        // Create initial particles
         createParticles('star', 200);
 
-        // 流れ星の管理
+        // Shooting star management
         let lastShootingStarTime = Date.now();
-        let nextShootingStarDelay = Math.random() * 20000 + 15000; // 15-35秒
+        let nextShootingStarDelay = Math.random() * 20000 + 15000; // 15-35 seconds
 
-        // アニメーションループ
+        // Animation loop
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // パーティクルの更新と描画（削除が必要なものを除外）
+            // Update and draw particles (filter out those that need removal)
             particles = particles.filter(particle => {
                 const result = particle.update();
                 if (result !== 'remove') {
@@ -908,14 +1173,14 @@
                 return false;
             });
 
-            // 夜間に流れ星をランダムで追加
+            // Add shooting stars randomly at night
             const hour = new Date().getHours();
             if ((hour >= 20 || hour < 5) && currentParticleType === 'star') {
                 const now = Date.now();
                 if (now - lastShootingStarTime > nextShootingStarDelay) {
                     particles.push(new Particle('shootingStar'));
                     lastShootingStarTime = now;
-                    nextShootingStarDelay = Math.random() * 25000 + 15000; // 次は15-40秒後
+                    nextShootingStarDelay = Math.random() * 25000 + 15000; // Next: 15-40 seconds later
                 }
             }
 
@@ -923,19 +1188,40 @@
         }
         animateParticles();
 
-        // 時間帯によってパーティクルタイプを変更
+        // Update particle type based on weather and time of day
         function updateParticleType(hour) {
+            // Priority 1: Weather-based particles (if weather is available)
+            if (weatherState.condition) {
+                if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle' || weatherState.condition === 'Thunderstorm') {
+                    // Show rain particles for rainy weather (unless manual rain button overrides)
+                    if (currentParticleType !== 'rain' && !document.getElementById('btn-rain').classList.contains('active')) {
+                        createParticles('rain', 150);
+                    }
+                    return;
+                } else if (weatherState.condition === 'Snow') {
+                    // Show snow particles for snowy weather
+                    if (currentParticleType !== 'snow') {
+                        createParticles('snow', 120);
+                    }
+                    return;
+                }
+            }
+
+            // Priority 2: Time-based particles (stars at night)
             if (hour >= 20 || hour < 5) {
                 if (currentParticleType !== 'star') createParticles('star', 200);
             } else {
-                if (currentParticleType !== 'none' && particles.length > 0) {
-                    particles = [];
-                    currentParticleType = 'none';
+                if (currentParticleType !== 'none' && particles.length > 0 && currentParticleType !== 'rain') {
+                    // Keep rain if manually activated
+                    if (!document.getElementById('btn-rain').classList.contains('active')) {
+                        particles = [];
+                        currentParticleType = 'none';
+                    }
                 }
             }
         }
 
-        // 時間帯システムを拡張
+        // Extend time-of-day system
         const originalUpdateTimeOfDay = updateTimeOfDay;
         updateTimeOfDay = function(hour) {
             originalUpdateTimeOfDay(hour);
@@ -943,31 +1229,31 @@
         };
 
 
-        // --- 4. 時間帯に応じた環境音 ---
+        // --- 4. Ambient Sounds Based on Time of Day ---
         const audioBirds = document.getElementById('audio-birds');
         const audioCrickets = document.getElementById('audio-crickets');
         audioBirds.volume = 0.15;
         audioCrickets.volume = 0.15;
 
         function updateAmbientSound(hour) {
-            // 朝（7:00-11:59）：鳥の声
+            // Morning (7:00-11:59): Bird sounds
             if (hour >= 7 && hour < 12) {
                 if (audioBirds.paused) audioBirds.play().catch(() => {});
                 if (!audioCrickets.paused) audioCrickets.pause();
             }
-            // 夜（20:00-4:59）：コオロギの声
+            // Night (20:00-4:59): Cricket sounds
             else if (hour >= 20 || hour < 5) {
                 if (audioCrickets.paused) audioCrickets.play().catch(() => {});
                 if (!audioBirds.paused) audioBirds.pause();
             }
-            // それ以外：環境音なし
+            // Otherwise: No ambient sounds
             else {
                 if (!audioBirds.paused) audioBirds.pause();
                 if (!audioCrickets.paused) audioCrickets.pause();
             }
         }
 
-        // 時間帯システムをさらに拡張
+        // Further extend time-of-day system
         const previousUpdateTimeOfDay = updateTimeOfDay;
         updateTimeOfDay = function(hour) {
             previousUpdateTimeOfDay(hour);
@@ -975,9 +1261,9 @@
         };
 
 
-        // --- 5. オーディオ & 設定保存 (Local Storage) ---
+        // --- 5. Audio & Settings Persistence (Local Storage) ---
 
-        // 設定を保存する関数
+        // Save settings function
         function saveSettings() {
             const settings = {
                 bonfireVol: document.getElementById('vol-bonfire').value,
@@ -1021,14 +1307,14 @@
         const bonfire = setupAudio('btn-bonfire', 'vol-bonfire', 'audio-bonfire');
         const rain = setupAudio('btn-rain', 'vol-rain', 'audio-rain');
 
-        // 雨の音がONになったら雨のパーティクルを表示
+        // Show rain particles when rain sound is ON
         document.getElementById('btn-rain').addEventListener('click', () => {
             setTimeout(() => {
                 const isRainActive = document.getElementById('btn-rain').classList.contains('active');
                 if (isRainActive) {
                     createParticles('rain', 150);
                 } else {
-                    // 雨が止まったら、時間帯に応じたパーティクルに戻す
+                    // When rain stops, return to time-based particles
                     const hour = new Date().getHours();
                     updateParticleType(hour);
                 }
@@ -1036,42 +1322,45 @@
         });
 
 
-        // --- 6. 明るさ調整 (Dimmer) ---
+        // --- 6. Brightness Adjustment (Dimmer) ---
         const dimmerRange = document.getElementById('dimmer-range');
         const dimmerOverlay = document.getElementById('dimmer-overlay');
 
         dimmerRange.addEventListener('input', (e) => {
-            // スライダーの値(0〜0.9)をそのまま透明度にする
-            // 0 = 透明(明るい), 0.9 = ほぼ真っ黒
+            // Use slider value (0-0.9) as opacity
+            // 0 = transparent (bright), 0.9 = almost black
             dimmerOverlay.style.opacity = e.target.value;
             saveSettings();
         });
 
 
-        // --- 7. 初期ロード時に設定を復元 ---
+        // --- 7. Restore Settings on Initial Load + Fetch Weather Data ---
         window.addEventListener('DOMContentLoaded', () => {
+            // Initialize weather system
+            initWeather();
+
             const saved = localStorage.getItem('ambientFlowSettings');
             if (saved) {
                 const s = JSON.parse(saved);
 
-                // 焚き火
+                // Bonfire
                 bonfire.vol.value = s.bonfireVol;
                 bonfire.audio.volume = s.bonfireVol;
-                if (s.bonfireOn) { 
-                    // 自動再生ポリシー対策: ここではUIだけONにして、初回のクリック待ちにする等の配慮が必要だが
-                    // 今回は簡易的に「クリック待ち」状態とする（音は出ないがUIはON）
-                    // ユーザーがどこかクリックした瞬間に再生を開始する処理を入れるとベスト
+                if (s.bonfireOn) {
+                    // Autoplay policy workaround: Just turn on UI, wait for first click
+                    // Sound won't play until user clicks somewhere
+                    // Best to start playback on first user click
                     bonfire.btn.classList.add('active');
                 }
 
-                // 雨
+                // Rain
                 rain.vol.value = s.rainVol;
                 rain.audio.volume = s.rainVol;
                 if (s.rainOn) {
                     rain.btn.classList.add('active');
                 }
 
-                // 明るさ
+                // Brightness
                 if (s.dimmer) {
                     dimmerRange.value = s.dimmer;
                     dimmerOverlay.style.opacity = s.dimmer;
@@ -1079,7 +1368,7 @@
             }
         });
 
-        // ブラウザの自動再生ブロック対策：画面のどこかを最初にクリックしたら、Activeな音を再生開始
+        // Browser autoplay block workaround: Start active sounds on first click anywhere
         document.body.addEventListener('click', () => {
             if(bonfire.btn.classList.contains('active') && bonfire.audio.paused) bonfire.audio.play();
             if(rain.btn.classList.contains('active') && rain.audio.paused) rain.audio.play();
@@ -1095,11 +1384,11 @@
                 if (!wakeLock) {
                     try {
                         wakeLock = await navigator.wakeLock.request('screen');
-                        wakeLockBtn.innerText = "常時表示 ON";
+                        wakeLockBtn.innerText = "Always On ON";
                         wakeLockBtn.classList.add('active');
                         wakeLock.addEventListener('release', () => {
                             wakeLock = null;
-                            wakeLockBtn.innerText = "常時表示 OFF";
+                            wakeLockBtn.innerText = "Always On OFF";
                             wakeLockBtn.classList.remove('active');
                         });
                     } catch (err) { console.error(err); }
@@ -1111,7 +1400,7 @@
         }
         wakeLockBtn.addEventListener('click', toggleWakeLock);
 
-        // デジタル/アナログ時計の切り替え
+        // Digital/Analog clock toggle
         const clockToggleBtn = document.getElementById('btn-clock-toggle');
         const digitalTime = document.getElementById('time');
         const digitalDate = document.getElementById('date');
@@ -1121,28 +1410,28 @@
             isAnalogClock = !isAnalogClock;
 
             if (isAnalogClock) {
-                // アナログ時計に切り替え
+                // Switch to analog clock
                 digitalTime.style.display = 'none';
                 digitalDate.style.display = 'none';
                 analogClock.classList.add('visible');
-                clockToggleBtn.textContent = '🔢'; // デジタル数字アイコン
+                clockToggleBtn.textContent = '🔢';
                 clockToggleBtn.classList.add('active');
 
-                // 即座にアナログ時計を更新
+                // Update analog clock immediately
                 updateAnalogClock(new Date());
             } else {
-                // デジタル時計に切り替え
+                // Switch to digital clock
                 digitalTime.style.display = '';
                 digitalDate.style.display = '';
                 analogClock.classList.remove('visible');
-                clockToggleBtn.textContent = '🕐'; // アナログ時計アイコン
+                clockToggleBtn.textContent = '🕐';
                 clockToggleBtn.classList.remove('active');
             }
         });
 
-        // ダブルクリックでフルスクリーン切り替え
+        // Double-click to toggle fullscreen
         document.addEventListener('dblclick', (e) => {
-            // コントロールパネル上でのダブルクリックは除外
+            // Exclude double-click on control panel
             if (e.target.closest('#controls')) return;
 
             if (!document.fullscreenElement) {
@@ -1153,9 +1442,9 @@
         });
 
 
-        // --- 9. ポモドーロタイマー ---
+        // --- 9. Pomodoro Timer ---
         let pomodoroInterval = null;
-        let pomodoroSeconds = 25 * 60; // 25分
+        let pomodoroSeconds = 25 * 60; // 25 minutes
         let pomodoroMode = 'work'; // 'work' or 'break'
         let pomodoroRunning = false;
 
@@ -1168,15 +1457,15 @@
 
         function startPomodoro() {
             if (pomodoroRunning) {
-                // 停止
+                // Stop
                 clearInterval(pomodoroInterval);
                 pomodoroRunning = false;
-                document.getElementById('pomodoro-start').textContent = '開始';
+                document.getElementById('pomodoro-start').textContent = 'Start';
                 document.getElementById('pomodoro-start').classList.remove('active');
             } else {
-                // 開始
+                // Start
                 pomodoroRunning = true;
-                document.getElementById('pomodoro-start').textContent = '停止';
+                document.getElementById('pomodoro-start').textContent = 'Stop';
                 document.getElementById('pomodoro-start').classList.add('active');
 
                 pomodoroInterval = setInterval(() => {
@@ -1184,23 +1473,23 @@
                     updatePomodoroDisplay();
 
                     if (pomodoroSeconds <= 0) {
-                        // タイマー終了
+                        // Timer complete
                         clearInterval(pomodoroInterval);
                         pomodoroRunning = false;
-                        document.getElementById('pomodoro-start').textContent = '開始';
+                        document.getElementById('pomodoro-start').textContent = 'Start';
                         document.getElementById('pomodoro-start').classList.remove('active');
 
-                        // 通知
+                        // Notification
                         if (pomodoroMode === 'work') {
-                            alert('作業時間終了！5分間休憩しましょう。');
+                            alert('Work session complete! Take a 5-minute break.');
                             pomodoroMode = 'break';
                             pomodoroSeconds = 5 * 60;
-                            document.getElementById('pomodoro-status').textContent = '休憩時間';
+                            document.getElementById('pomodoro-status').textContent = 'Break time';
                         } else {
-                            alert('休憩終了！次の作業を始めましょう。');
+                            alert('Break complete! Start your next work session.');
                             pomodoroMode = 'work';
                             pomodoroSeconds = 25 * 60;
-                            document.getElementById('pomodoro-status').textContent = '作業時間';
+                            document.getElementById('pomodoro-status').textContent = 'Work time';
                         }
                         updatePomodoroDisplay();
                     }
@@ -1213,9 +1502,9 @@
             pomodoroRunning = false;
             pomodoroMode = 'work';
             pomodoroSeconds = 25 * 60;
-            document.getElementById('pomodoro-start').textContent = '開始';
+            document.getElementById('pomodoro-start').textContent = 'Start';
             document.getElementById('pomodoro-start').classList.remove('active');
-            document.getElementById('pomodoro-status').textContent = '準備完了';
+            document.getElementById('pomodoro-status').textContent = 'Ready';
             updatePomodoroDisplay();
         }
 
@@ -1223,7 +1512,7 @@
         document.getElementById('pomodoro-reset').addEventListener('click', resetPomodoro);
 
 
-        // --- 10. アラーム機能 ---
+        // --- 10. Alarm Function ---
         let alarmEnabled = false;
         let alarmChecked = false;
 
@@ -1236,8 +1525,8 @@
 
             if (currentTime === alarmTime && !alarmChecked) {
                 alarmChecked = true;
-                alert('アラーム: 設定した時刻になりました！');
-                // 1分後にチェックをリセット
+                alert('Alarm: The set time has been reached!');
+                // Reset check after 1 minute
                 setTimeout(() => { alarmChecked = false; }, 60000);
             }
         }
@@ -1253,7 +1542,7 @@
         });
 
 
-        // --- 11. キーボードショートカット ---
+        // --- 11. Keyboard Shortcuts ---
         let toolsPanelVisible = false;
 
         function toggleToolsPanel() {
@@ -1286,7 +1575,7 @@
         }
 
         document.addEventListener('keydown', (e) => {
-            // 入力フィールドでは無効化
+            // Disable shortcuts when in input fields
             if (e.target.tagName === 'INPUT') return;
 
             switch(e.key.toLowerCase()) {
@@ -1309,7 +1598,7 @@
             }
         });
 
-        // ショートカットヒントを最初だけ表示
+        // Show shortcut hints initially
         setTimeout(() => {
             document.getElementById('shortcut-hint').classList.add('show');
             setTimeout(() => {
