@@ -582,15 +582,13 @@
     <audio id="audio-bonfire" loop src="bonfire.mp3"></audio>
     <audio id="audio-rain" loop src="rain.mp3"></audio>
 
-    <!-- Ambient sounds based on time of day -->
-    <audio id="audio-birds" loop src="https://assets.mixkit.co/active_storage/sfx/2462/2462-preview.mp3"></audio>
-    <audio id="audio-crickets" loop src="https://assets.mixkit.co/active_storage/sfx/1730/1730-preview.mp3"></audio>
-
     <script>
         // --- 1. Weather System ---
         const weatherState = {
             condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
             temp: null,
+            windSpeed: 0,
+            moonPhase: 0.5,
             sunrise: null,          // Sunrise time
             sunset: null,           // Sunset time
             city: null,             // City name
@@ -656,9 +654,57 @@
             return 'Clear'; // Default
         }
 
+        // Calculate Julian Day Number from a Date object
+        // ユリウス日を計算（グレゴリオ暦の日付から）
+        function calculateJulianDay(date) {
+            const year = date.getUTCFullYear();
+            const month = date.getUTCMonth() + 1; // JavaScript months are 0-indexed
+            const day = date.getUTCDate();
+            const hour = date.getUTCHours();
+            const minute = date.getUTCMinutes();
+            const second = date.getUTCSeconds();
+
+            // Convert time to decimal day
+            const decimalDay = day + (hour / 24) + (minute / 1440) + (second / 86400);
+
+            // Julian Day calculation algorithm
+            let a = Math.floor((14 - month) / 12);
+            let y = year + 4800 - a;
+            let m = month + 12 * a - 3;
+
+            let jd = decimalDay + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+
+            return jd;
+        }
+
+        // Calculate moon phase (0.0 = New Moon, 0.5 = Full Moon, 1.0 = New Moon)
+        // 月の位相を計算（0.0=新月、0.5=満月、1.0=新月）
+        function calculateMoonPhase(date = new Date()) {
+            // Known new moon: January 6, 2000, 18:14 UTC (JD = 2451550.26)
+            const knownNewMoonJD = 2451550.26;
+
+            // Synodic month length (average lunar cycle duration in days)
+            // 朔望月の長さ（平均）
+            const synodicMonth = 29.53058867;
+
+            // Calculate current Julian Day
+            const currentJD = calculateJulianDay(date);
+
+            // Calculate days since known new moon
+            const daysSinceNewMoon = currentJD - knownNewMoonJD;
+
+            // Calculate current position in lunar cycle
+            const cyclePosition = daysSinceNewMoon / synodicMonth;
+
+            // Get fractional part (0.0 to 1.0)
+            const moonPhase = cyclePosition - Math.floor(cyclePosition);
+
+            return moonPhase;
+        }
+
         // Fetch weather data from Open-Meteo API (No API key required)
         async function fetchWeatherData(lat, lon) {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
                 const response = await fetch(url);
@@ -670,8 +716,10 @@
                 return {
                     condition: mapWeatherCode(data.current_weather.weathercode),
                     temp: data.current_weather.temperature,
-                    sunrise: data.daily.sunrise[0],  // Today's sunrise (ISO format)
-                    sunset: data.daily.sunset[0]     // Today's sunset (ISO format)
+                    windSpeed: data.current_weather.windspeed, // 風速 (km/h)
+                    sunrise: data.daily.sunrise[0],
+                    sunset: data.daily.sunset[0],
+                    moonPhase: calculateMoonPhase() // ユリウス日を使った計算 (0.00:新月 -> 0.50:満月 -> 1.00:新月)
                 };
             } catch (error) {
                 console.error('Failed to fetch weather data:', error);
@@ -727,6 +775,8 @@
                 if (weather) {
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
+                    weatherState.windSpeed = weather.windSpeed;
+                    weatherState.moonPhase = weather.moonPhase;
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
 
@@ -737,6 +787,7 @@
 
                     // Update UI
                     document.getElementById('weather-location').textContent = cityName.toUpperCase();
+                    document.getElementById('weather-desc').innerText =  `${weather.condition} • 💨 ${weather.windSpeed} km/h`;
                     document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
                     document.getElementById('weather-desc').textContent = weather.condition;
                     document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
@@ -1065,6 +1116,9 @@
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
                 celestialBody.style.opacity = '1';
+                celestialBody.innerHTML = ''; // 月の描画を消す
+                celestialBody.style.background = ''; // CSS定義の太陽の色に戻す
+                celestialBody.style.boxShadow = '';  // CSS定義の影に戻す
             } else {
                 // Night time: Show moon
                 celestialBody.className = 'moon';
@@ -1098,8 +1152,107 @@
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
                 celestialBody.style.opacity = '1';
+
+                const phase = weatherState.moonPhase || 0.5;
+    
+                // 月の見た目を生成する関数
+                celestialBody.innerHTML = getMoonSVG(phase);
+                
+                // 背景色と影をリセット（SVGで描くため、CSSの円は透明にする）
+                celestialBody.style.background = 'transparent';
+                celestialBody.style.boxShadow = 'none'; // CSSの影は消してSVGのglowを使う
             }
         }
+
+
+        function getMoonSVG(phase) {
+    // 簡易的な満ち欠け計算
+    // 0.5が満月。0と1が新月。
+    // クレーターのような模様は省略し、光と影だけで表現します
+    
+    let path = "";
+    const r = 40; // 半径
+    
+    // SVGのパスデータを作成して満ち欠けを表現するのは複雑なので、
+    // ここでは「マスク」を使ったシンプルなSVG文字列を返します。
+    
+    // 影の位置を計算 (-40 から 40)
+    let shadowX = 0;
+    
+    // 新月(0) -> 満月(0.5) -> 新月(1.0)
+    // 視覚的な「輝いている割合」を計算
+    let illumination = 0;
+    let isWaxing = phase <= 0.5; // 満ちていく
+    
+    if (phase <= 0.5) {
+        illumination = phase * 2; // 0 -> 1
+    } else {
+        illumination = (1 - phase) * 2; // 1 -> 0
+    }
+
+    // 満月のときは単純な円
+    if (Math.abs(phase - 0.5) < 0.05) {
+        return `
+        <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="38" fill="#f6f1d5" filter="url(#glow)"/>
+            <defs>
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                    <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+        </svg>`;
+    }
+
+    // それ以外はマスクを使って表現（簡易実装: SVGのmaskを使用）
+    // cxの移動で満ち欠けをシミュレーション
+    const maskX = isWaxing ? 40 - (illumination * 80) : 40 + (illumination * 80);
+    
+    // 新月の場合
+    if (illumination < 0.05) {
+         return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1);"></div>`;
+    }
+
+    // 満ち欠けの描画 (clip-pathなどを使うのが現代的ですが、ここでは簡易的に「円」と「影」の重なりで表現)
+    // 実際には、phaseに基づいて mask-image を動かすCSSの方が軽量かもしれません。
+    // 今回は「円」の中に「黒い円」をずらして重ねることで三日月を作ります。
+    
+    // 影のオフセット計算
+    let offset = (phase - 0.5) * 160; // -80(左) 〜 80(右)
+    
+    // CSSでマスクを作る方が綺麗なので、インラインスタイルを返します
+    // box-shadowを使って三日月を作るテクニック
+    
+    return `
+    <div style="
+        width: 80px; 
+        height: 80px; 
+        border-radius: 50%; 
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.5); 
+    ">
+        <div style="
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background: #f6f1d5;
+        "></div>
+        <div style="
+            position: absolute;
+            top: 0; 
+            left: ${offset}px;
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.85); 
+            filter: blur(4px);
+        "></div>
+    </div>`;
+}
 
 
         // --- 2. Immersive Mode (Hide UI when mouse is idle) ---
@@ -1263,17 +1416,20 @@
                     }
                 } else if (this.type === 'snow') {
                     // Snow movement with drift
+                    const windDrift = (weatherState.windSpeed || 0) * 0.05;
+
                     this.driftOffset += this.driftSpeed;
                     this.y += this.speedY;
-                    this.x += this.speedX + Math.sin(this.driftOffset) * 0.5; // Sine wave drift
+                    
+                    this.x += this.speedX + Math.sin(this.driftOffset) * 0.5 + windDrift;
 
-                    if (this.y > canvas.height) {
-                        this.reset();
-                    }
+                    if (this.y > canvas.height) this.reset();
                 } else {
                     // Rain falling
+                    const windDrift = (weatherState.windSpeed || 0) * 0.2; // 雨の方が風の影響を強く受ける
+
                     this.y += this.speedY;
-                    this.x += this.speedX;
+                    this.x += this.speedX + windDrift;
 
                     if (this.y > canvas.height) {
                         // Create splash effect when hitting ground
@@ -1379,9 +1535,12 @@
                     ctx.shadowBlur = 0;
                 } else if (this.type === 'rain') {
                     // Gradient streak for realistic motion blur
+                    const windDrift = (weatherState.windSpeed || 0) * 0.2;
                     const gradient = ctx.createLinearGradient(
                         this.x, this.y,
-                        this.x + this.speedX * 3, this.y + this.speedY * 5
+                        // 描画の終点も風の分だけずらすことで「斜めの線」にする
+                        this.x + this.speedX * 3 + (windDrift * 2), 
+                        this.y + this.speedY * 5
                     );
                     gradient.addColorStop(0, 'rgba(136, 192, 208, 0)');      // Transparent top
                     gradient.addColorStop(0.5, 'rgba(136, 192, 208, 0.6)');  // Semi-transparent middle
@@ -1392,7 +1551,7 @@
                     ctx.lineCap = 'round';
                     ctx.beginPath();
                     ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(this.x + this.speedX * 3, this.y + this.speedY * 5);
+                    ctx.lineTo(this.x + this.speedX * 3 + (windDrift * 2), this.y + this.speedY * 5);
                     ctx.stroke();
                 }
 
@@ -1522,8 +1681,10 @@
             }
 
             update() {
+                const windEffect = (weatherState.windSpeed || 0) * 0.05;
+
                 // Move horizontally
-                this.x += this.speed;
+                this.x += this.speed + windEffect;
 
                 // Wrap around screen
                 if (this.x > canvas.width + 200) {
@@ -2023,39 +2184,7 @@
         };
 
 
-        // --- 4. Ambient Sounds Based on Time of Day ---
-        const audioBirds = document.getElementById('audio-birds');
-        const audioCrickets = document.getElementById('audio-crickets');
-        audioBirds.volume = 0.15;
-        audioCrickets.volume = 0.15;
-
-        function updateAmbientSound(hour) {
-            // Morning (7:00-11:59): Bird sounds
-            if (hour >= 7 && hour < 12) {
-                if (audioBirds.paused) audioBirds.play().catch(() => {});
-                if (!audioCrickets.paused) audioCrickets.pause();
-            }
-            // Night (20:00-4:59): Cricket sounds
-            else if (hour >= 20 || hour < 5) {
-                if (audioCrickets.paused) audioCrickets.play().catch(() => {});
-                if (!audioBirds.paused) audioBirds.pause();
-            }
-            // Otherwise: No ambient sounds
-            else {
-                if (!audioBirds.paused) audioBirds.pause();
-                if (!audioCrickets.paused) audioCrickets.pause();
-            }
-        }
-
-        // Further extend time-of-day system
-        const previousUpdateTimeOfDay = updateTimeOfDay;
-        updateTimeOfDay = function(hour, minutes) {
-            previousUpdateTimeOfDay(hour, minutes);
-            updateAmbientSound(hour);
-        };
-
-
-        // --- 5. Audio & Settings Persistence (Local Storage) ---
+        // --- 4. Audio & Settings Persistence (Local Storage) ---
 
         // Save settings function
         function saveSettings() {
