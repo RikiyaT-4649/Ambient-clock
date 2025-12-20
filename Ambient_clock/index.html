@@ -4,9 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ambient Flow</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400&display=swap" rel="stylesheet">
-    
+
     <style>
         /* --- CSS --- */
         body, html {
@@ -500,6 +502,20 @@
         <div id="time">00:00:00</div>
         <div id="date">LOADING...</div>
 
+        <!-- Weather display area -->
+        <div id="weather-display" style="margin-top: 15px; opacity: 0; transition: opacity 1s;">
+            <div id="weather-location" style="font-size: 0.9vw; opacity: 0.7; margin-bottom: 8px; letter-spacing: 0.15em; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);">
+                --
+            </div>
+            <span id="weather-temp" style="font-size: 2.5vw; font-weight: 200; text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);">--°C</span>
+            <div id="weather-desc" style="font-size: 1vw; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 5px; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);">
+                Loading...
+            </div>
+            <div id="sun-times" style="font-size: 0.8vw; opacity: 0.6; margin-top: 5px; letter-spacing: 0.05em;">
+                ☀️ -- | 🌙 --
+            </div>
+        </div>
+
         <!-- Analog clock -->
         <div id="analog-clock">
             <div class="clock-center"></div>
@@ -575,9 +591,10 @@
         const weatherState = {
             condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
             temp: null,
-            city: null,
-            coords: { lat: 35.6762, lon: 139.6503 }, // Tokyo fallback
-            apiKey: 'YOUR_API_KEY_HERE' // User must replace with their OpenWeatherMap API key
+            sunrise: null,          // Sunrise time
+            sunset: null,           // Sunset time
+            city: null,             // City name
+            coords: { lat: 35.6762, lon: 139.6503 } // Tokyo fallback
         };
 
         // Get user's geolocation
@@ -604,31 +621,93 @@
             });
         }
 
-        // Fetch weather data from OpenWeatherMap API
-        async function fetchWeatherData(lat, lon) {
-            if (weatherState.apiKey === 'YOUR_API_KEY_HERE') {
-                console.warn('OpenWeatherMap API key not configured. Please add your API key to enable weather features.');
-                return null;
-            }
-
-            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${weatherState.apiKey}&units=metric`;
+        // Get city name from coordinates using reverse geocoding
+        async function getCityName(lat, lon) {
+            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en`;
 
             try {
-                const response = await fetch(url, { timeout: 10000 });
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Geocoding API returned ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Try to get city name from various fields (city, town, village, or state)
+                return data.address.city ||
+                       data.address.town ||
+                       data.address.village ||
+                       data.address.state ||
+                       data.address.country ||
+                       'Unknown Location';
+            } catch (error) {
+                console.error('Failed to fetch city name:', error);
+                return 'Unknown Location';
+            }
+        }
+
+        // Map Open-Meteo weather codes to conditions
+        function mapWeatherCode(code) {
+            if (code === 0) return 'Clear';
+            if (code >= 1 && code <= 3) return 'Clouds';
+            if (code === 45 || code === 48) return 'Mist';
+            if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'Rain';
+            if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return 'Snow';
+            if (code >= 95 && code <= 99) return 'Thunderstorm';
+            return 'Clear'; // Default
+        }
+
+        // Fetch weather data from Open-Meteo API (No API key required)
+        async function fetchWeatherData(lat, lon) {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius`;
+
+            try {
+                const response = await fetch(url);
                 if (!response.ok) {
                     throw new Error(`Weather API returned ${response.status}`);
                 }
                 const data = await response.json();
 
                 return {
-                    condition: data.weather[0].main, // Clear, Clouds, Rain, Snow, etc.
-                    temp: data.main.temp,
-                    city: data.name
+                    condition: mapWeatherCode(data.current_weather.weathercode),
+                    temp: data.current_weather.temperature,
+                    sunrise: data.daily.sunrise[0],  // Today's sunrise (ISO format)
+                    sunset: data.daily.sunset[0]     // Today's sunset (ISO format)
                 };
             } catch (error) {
                 console.error('Failed to fetch weather data:', error);
                 return null;
             }
+        }
+
+        // Format time from ISO string (e.g., "2025-12-20T06:30" -> "06:30")
+        function formatTime(isoString) {
+            if (!isoString) return '--:--';
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+
+        // Calculate sun position as percentage (0% = sunrise, 100% = sunset)
+        // Returns: 0-100 if sun is up, null if it's night time
+        function calculateSunPosition() {
+            if (!weatherState.sunrise || !weatherState.sunset) {
+                return null; // No data available
+            }
+
+            const now = new Date();
+            const sunrise = new Date(weatherState.sunrise);
+            const sunset = new Date(weatherState.sunset);
+
+            // Check if it's daytime
+            if (now < sunrise || now > sunset) {
+                return null; // It's night
+            }
+
+            // Calculate position as percentage
+            const totalDayMinutes = (sunset - sunrise) / 1000 / 60; // Total minutes from sunrise to sunset
+            const elapsedMinutes = (now - sunrise) / 1000 / 60;     // Minutes since sunrise
+
+            const position = (elapsedMinutes / totalDayMinutes) * 100;
+            return Math.max(0, Math.min(100, position)); // Clamp between 0-100
         }
 
         // Initialize weather system
@@ -637,17 +716,40 @@
                 const coords = await fetchUserLocation();
                 weatherState.coords = coords;
 
-                const weather = await fetchWeatherData(coords.lat, coords.lon);
+                // Get city name and weather data in parallel
+                const [cityName, weather] = await Promise.all([
+                    getCityName(coords.lat, coords.lon),
+                    fetchWeatherData(coords.lat, coords.lon)
+                ]);
+
+                weatherState.city = cityName;
+
                 if (weather) {
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
-                    weatherState.city = weather.city;
-                    console.log(`Weather loaded: ${weather.condition} in ${weather.city}`);
+                    weatherState.sunrise = weather.sunrise;
+                    weatherState.sunset = weather.sunset;
 
-                    // Update background and particles immediately
+                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C`);
+                    console.log(`Sunrise: ${formatTime(weather.sunrise)}, Sunset: ${formatTime(weather.sunset)}`);
+                    console.log(`weatherState.condition set to: "${weatherState.condition}"`);
+                    console.log(`Current hour: ${new Date().getHours()}`);
+
+                    // Update UI
+                    document.getElementById('weather-location').textContent = cityName.toUpperCase();
+                    document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
+                    document.getElementById('weather-desc').textContent = weather.condition;
+                    document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
+
+                    // Fade in weather display
+                    document.getElementById('weather-display').style.opacity = '1';
+
+                    // Update background immediately
                     const now = new Date();
                     updateTimeOfDay(now.getHours(), now.getMinutes());
-                    updateParticleType(now.getHours());
+
+                    // NEW: Initialize weather effects (clouds, lightning, and particles)
+                    updateWeatherEffects();
                 }
             } catch (error) {
                 console.error('Weather initialization failed:', error);
@@ -921,27 +1023,42 @@
             bgContainer.style.background = gradient;
         }
 
-        // 太陽・月の位置と表示を更新
+        // Calculate solar progress (0.0 = sunrise, 1.0 = sunset, -1 = night)
+        function getSolarProgress() {
+            const now = Date.now();
+            const { sunrise, sunset } = weatherState;
+
+            // If no data available yet, default to daytime (0.5)
+            if (!sunrise || !sunset) return 0.5;
+
+            const sunriseTime = new Date(sunrise).getTime();
+            const sunsetTime = new Date(sunset).getTime();
+
+            if (now >= sunriseTime && now <= sunsetTime) {
+                // Daytime: 0.0 (sunrise) to 1.0 (sunset)
+                return (now - sunriseTime) / (sunsetTime - sunriseTime);
+            } else {
+                // Night time
+                return -1;
+            }
+        }
+
+        // Update sun and moon position and display (using actual sunrise/sunset times)
         function updateCelestialBody(hour, minute) {
             const celestialBody = document.getElementById('celestial-body');
-            const totalMinutes = hour * 60 + minute;
+            const solarProgress = getSolarProgress();
 
-            // 6:00-18:00は太陽、18:00-6:00は月
-            const isSun = hour >= 6 && hour < 18;
+            // Common arc parameters
+            const centerX = window.innerWidth / 2;
+            const radiusX = window.innerWidth * 0.4;
+            const radiusY = window.innerHeight * 0.3;
 
-            if (isSun) {
+            if (solarProgress >= 0 && solarProgress <= 1) {
+                // Daytime: Show sun
                 celestialBody.className = 'sun';
-                // 太陽の移動: 6:00(左下) → 12:00(中央上) → 18:00(右下)
-                // 6:00 = 360分, 18:00 = 1080分
-                const sunMinutes = totalMinutes - 360; // 0-720分
-                const progress = sunMinutes / 720; // 0-1
 
-                // 弧を描く動き
-                const angle = Math.PI * progress; // 0 → π
-                const centerX = window.innerWidth / 2;
-                const radiusX = window.innerWidth * 0.4;
-                const radiusY = window.innerHeight * 0.3;
-
+                // Sun movement: sunrise (left) → noon (top) → sunset (right)
+                const angle = Math.PI * solarProgress; // 0 → π
                 const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
                 const y = window.innerHeight * 0.7 - Math.sin(angle) * radiusY - 40;
 
@@ -949,21 +1066,32 @@
                 celestialBody.style.top = y + 'px';
                 celestialBody.style.opacity = '1';
             } else {
+                // Night time: Show moon
                 celestialBody.className = 'moon';
-                // 月の移動: 18:00(左下) → 0:00(中央上) → 6:00(右下)
-                let moonMinutes;
-                if (hour >= 18) {
-                    moonMinutes = totalMinutes - 1080; // 18:00から
-                } else {
-                    moonMinutes = totalMinutes + 360; // 0:00-6:00
+
+                // Calculate moon progress based on time between sunset and next sunrise
+                const now = Date.now();
+                const sunset = weatherState.sunset ? new Date(weatherState.sunset).getTime() : null;
+                const sunrise = weatherState.sunrise ? new Date(weatherState.sunrise).getTime() : null;
+
+                let moonProgress = 0.5; // Default to middle of night
+
+                if (sunset && sunrise) {
+                    // If before midnight, use today's sunset to tomorrow's sunrise
+                    // If after midnight, use yesterday's sunset to today's sunrise
+                    const nextSunrise = now < sunset ? sunrise + 86400000 : sunrise; // Add 24 hours if needed
+                    const prevSunset = now < sunset ? sunset : sunset - 86400000; // Subtract 24 hours if needed
+
+                    const nightDuration = nextSunrise - prevSunset;
+                    const elapsedNight = now - prevSunset;
+
+                    if (nightDuration > 0 && elapsedNight >= 0) {
+                        moonProgress = elapsedNight / nightDuration;
+                    }
                 }
-                const progress = moonMinutes / 720; // 0-1
 
-                const angle = Math.PI * progress;
-                const centerX = window.innerWidth / 2;
-                const radiusX = window.innerWidth * 0.4;
-                const radiusY = window.innerHeight * 0.3;
-
+                // Moon movement: sunset (left) → midnight (top) → sunrise (right)
+                const angle = Math.PI * moonProgress;
                 const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
                 const y = window.innerHeight * 0.7 - Math.sin(angle) * radiusY - 40;
 
@@ -1020,8 +1148,43 @@
                 this.speedY = this.type === 'star' ? 0 : Math.random() * 2 + 1;
                 this.speedX = this.type === 'star' ? 0 : Math.random() * 0.5 - 0.25;
                 this.opacity = Math.random() * 0.5 + 0.3;
-                this.twinkleSpeed = Math.random() * 0.02 + 0.01;
-                this.twinklePhase = Math.random() * Math.PI * 2;
+
+                // Enhanced star properties
+                if (this.type === 'star') {
+                    // Star personality: each star has unique characteristics
+                    this.baseSize = Math.random() * 1.5 + 0.5; // Base size variation
+                    this.baseBrightness = Math.random() * 0.5 + 0.5; // 0.5-1.0
+
+                    // Star color temperature (white, blue-white, yellow-white)
+                    const colorType = Math.random();
+                    if (colorType < 0.6) {
+                        this.starColor = { r: 255, g: 255, b: 255 }; // Pure white (most common)
+                    } else if (colorType < 0.85) {
+                        this.starColor = { r: 200, g: 220, b: 255 }; // Blue-white (hot stars)
+                    } else {
+                        this.starColor = { r: 255, g: 245, b: 220 }; // Yellow-white (cooler stars)
+                    }
+
+                    // Multi-layered twinkling speeds for complex patterns
+                    this.twinkleSpeed1 = Math.random() * 0.015 + 0.005; // Slow wave
+                    this.twinkleSpeed2 = Math.random() * 0.03 + 0.01;   // Medium wave
+                    this.twinkleSpeed3 = Math.random() * 0.05 + 0.02;   // Fast wave
+                    this.twinklePhase1 = Math.random() * Math.PI * 2;
+                    this.twinklePhase2 = Math.random() * Math.PI * 2;
+                    this.twinklePhase3 = Math.random() * Math.PI * 2;
+
+                    // Pulse effect (occasional bright flash)
+                    this.pulseTimer = Math.random() * 500 + 300; // Next pulse in 3-8 seconds
+                    this.isPulsing = false;
+                    this.pulsePhase = 0;
+
+                    // Shimmer effect
+                    this.shimmerOffset = Math.random() * Math.PI * 2;
+                    this.shimmerSpeed = Math.random() * 0.02 + 0.01;
+                } else {
+                    this.twinkleSpeed = Math.random() * 0.02 + 0.01;
+                    this.twinklePhase = Math.random() * Math.PI * 2;
+                }
 
                 // Shooting star initialization
                 if (this.type === 'shootingStar') {
@@ -1048,9 +1211,45 @@
 
             update() {
                 if (this.type === 'star') {
-                    // Star twinkling
-                    this.twinklePhase += this.twinkleSpeed;
-                    this.opacity = 0.3 + Math.sin(this.twinklePhase) * 0.4;
+                    // Multi-layered twinkling for realistic effect
+                    this.twinklePhase1 += this.twinkleSpeed1;
+                    this.twinklePhase2 += this.twinkleSpeed2;
+                    this.twinklePhase3 += this.twinkleSpeed3;
+                    this.shimmerOffset += this.shimmerSpeed;
+
+                    // Combine multiple sine waves for complex twinkling pattern
+                    const wave1 = Math.sin(this.twinklePhase1) * 0.3;
+                    const wave2 = Math.sin(this.twinklePhase2) * 0.2;
+                    const wave3 = Math.sin(this.twinklePhase3) * 0.15;
+                    const shimmer = Math.sin(this.shimmerOffset) * 0.1;
+
+                    // Base opacity with multi-wave modulation
+                    let brightness = this.baseBrightness + wave1 + wave2 + wave3 + shimmer;
+
+                    // Pulse effect (occasional bright flash)
+                    this.pulseTimer--;
+                    if (this.pulseTimer <= 0 && !this.isPulsing) {
+                        this.isPulsing = true;
+                        this.pulsePhase = 0;
+                        this.pulseTimer = Math.random() * 500 + 300; // Reset timer for next pulse
+                    }
+
+                    if (this.isPulsing) {
+                        this.pulsePhase += 0.08;
+                        const pulseBrightness = Math.sin(this.pulsePhase) * 0.6;
+                        brightness += pulseBrightness;
+
+                        if (this.pulsePhase >= Math.PI) {
+                            this.isPulsing = false;
+                        }
+                    }
+
+                    // Clamp brightness between 0.2 and 1.0
+                    this.opacity = Math.max(0.2, Math.min(1.0, brightness));
+
+                    // Size variation with twinkling (stars appear to pulsate)
+                    this.currentSize = this.baseSize * (0.8 + this.opacity * 0.4);
+
                 } else if (this.type === 'shootingStar') {
                     // Shooting star movement
                     this.x += this.speedX;
@@ -1077,6 +1276,10 @@
                     this.x += this.speedX;
 
                     if (this.y > canvas.height) {
+                        // Create splash effect when hitting ground
+                        if (Math.random() < 0.3) { // 30% chance to create splash
+                            rainSplashes.push(new RainSplash(this.x, canvas.height - 5));
+                        }
                         this.reset();
                     }
                 }
@@ -1087,10 +1290,57 @@
                 ctx.globalAlpha = this.opacity;
 
                 if (this.type === 'star') {
-                    ctx.fillStyle = '#ffffff';
+                    const { r, g, b } = this.starColor;
+                    const size = this.currentSize || this.baseSize;
+
+                    // Outer glow (larger, softer)
+                    const glowGradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, size * 4
+                    );
+                    glowGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.8})`);
+                    glowGradient.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.3})`);
+                    glowGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+                    ctx.fillStyle = glowGradient;
                     ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.arc(this.x, this.y, size * 4, 0, Math.PI * 2);
                     ctx.fill();
+
+                    // Core star (bright center)
+                    const coreGradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, size * 1.5
+                    );
+                    coreGradient.addColorStop(0, `rgba(255, 255, 255, ${this.opacity})`);
+                    coreGradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.9})`);
+                    coreGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.4})`);
+
+                    ctx.fillStyle = coreGradient;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, size * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Bright center point
+                    ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity * 0.9})`;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, size * 0.5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Cross sparkle effect (for bright stars)
+                    if (this.opacity > 0.7) {
+                        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${(this.opacity - 0.7) * 2})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.beginPath();
+                        // Vertical line
+                        ctx.moveTo(this.x, this.y - size * 2);
+                        ctx.lineTo(this.x, this.y + size * 2);
+                        // Horizontal line
+                        ctx.moveTo(this.x - size * 2, this.y);
+                        ctx.lineTo(this.x + size * 2, this.y);
+                        ctx.stroke();
+                    }
+
                 } else if (this.type === 'shootingStar') {
                     // Shooting star tail (gradient)
                     const gradient = ctx.createLinearGradient(
@@ -1128,8 +1378,18 @@
                     ctx.fill();
                     ctx.shadowBlur = 0;
                 } else if (this.type === 'rain') {
-                    ctx.strokeStyle = '#88c0d0';
-                    ctx.lineWidth = this.size;
+                    // Gradient streak for realistic motion blur
+                    const gradient = ctx.createLinearGradient(
+                        this.x, this.y,
+                        this.x + this.speedX * 3, this.y + this.speedY * 5
+                    );
+                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0)');      // Transparent top
+                    gradient.addColorStop(0.5, 'rgba(136, 192, 208, 0.6)');  // Semi-transparent middle
+                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.9)');    // Opaque bottom
+
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = this.size * 1.2;
+                    ctx.lineCap = 'round';
                     ctx.beginPath();
                     ctx.moveTo(this.x, this.y);
                     ctx.lineTo(this.x + this.speedX * 3, this.y + this.speedY * 5);
@@ -1140,16 +1400,471 @@
             }
         }
 
+        // --- Rain Splash Effect ---
+        class RainSplash {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 1;
+                this.maxRadius = 4 + Math.random() * 3;
+                this.lifetime = 0;
+                this.maxLifetime = 15; // Frames
+                this.opacity = 0.8;
+            }
+
+            update() {
+                this.lifetime++;
+                // Expand and fade
+                this.radius = this.maxRadius * (this.lifetime / this.maxLifetime);
+                this.opacity = 0.8 * (1 - this.lifetime / this.maxLifetime);
+
+                return this.lifetime >= this.maxLifetime ? 'remove' : null;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.opacity;
+
+                // Small expanding circle
+                ctx.strokeStyle = '#aaddff';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Inner ripple
+                if (this.lifetime > 3) {
+                    ctx.strokeStyle = '#88c0d0';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius * 0.5, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Splash particles array
+        let rainSplashes = [];
+
+        // --- Cloud Particle System (Particle-Based) ---
+        class CloudParticle {
+            constructor(layer, weatherCondition) {
+                this.layer = layer; // 0=back, 1=mid, 2=front
+                this.particles = [];
+                this.weatherCondition = weatherCondition;
+
+                // Position and movement
+                this.x = Math.random() * (canvas.width + 400) - 200;
+                this.y = Math.random() * (canvas.height * 0.3) + canvas.height * 0.1;
+
+                // Speed varies by layer (parallax effect)
+                this.speed = (layer + 1) * (0.1 + Math.random() * 0.15);
+
+                // Cloud frame dimensions (ellipse)
+                this.width = 180 + Math.random() * 280;
+                this.height = 90 + Math.random() * 130;
+
+                // Weather-based appearance
+                this.setWeatherAppearance(weatherCondition);
+
+                // Generate cloud particles
+                this.generateCloudParticles();
+            }
+
+            setWeatherAppearance(condition) {
+                switch(condition) {
+                    case 'Clear':
+                        this.color = '#ffffff';
+                        this.opacity = 0.5 + Math.random() * 0.2;
+                        break;
+                    case 'Clouds':
+                        this.color = '#e8e8e8';
+                        this.opacity = 0.6 + Math.random() * 0.2;
+                        break;
+                    case 'Rain':
+                        this.color = '#7a7a7a';
+                        this.opacity = 0.7 + Math.random() * 0.15;
+                        break;
+                    case 'Snow':
+                        this.color = '#d8d8d8';
+                        this.opacity = 0.6 + Math.random() * 0.2;
+                        break;
+                    case 'Thunderstorm':
+                        this.color = '#3a3a3a';
+                        this.opacity = 0.8 + Math.random() * 0.1;
+                        break;
+                    default:
+                        this.color = '#ffffff';
+                        this.opacity = 0.5;
+                }
+            }
+
+            generateCloudParticles() {
+                // Create 10-15 circular particles within cloud frame
+                const particleCount = 10 + Math.floor(Math.random() * 6);
+                this.particles = [];
+
+                for (let i = 0; i < particleCount; i++) {
+                    // Random position within ellipse
+                    const angle = Math.random() * Math.PI * 2;
+                    const radiusX = (Math.random() * 0.5 + 0.3) * (this.width / 2);
+                    const radiusY = (Math.random() * 0.5 + 0.3) * (this.height / 2);
+
+                    this.particles.push({
+                        offsetX: Math.cos(angle) * radiusX,
+                        offsetY: Math.sin(angle) * radiusY,
+                        radius: 25 + Math.random() * 45,
+                        opacity: 0.4 + Math.random() * 0.4
+                    });
+                }
+            }
+
+            update() {
+                // Move horizontally
+                this.x += this.speed;
+
+                // Wrap around screen
+                if (this.x > canvas.width + 200) {
+                    this.x = -this.width - 200;
+                    this.y = Math.random() * (canvas.height * 0.3) + canvas.height * 0.1;
+                    // Regenerate particles for variety
+                    this.generateCloudParticles();
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+
+                // Parse color
+                const r = parseInt(this.color.substring(1, 3), 16);
+                const g = parseInt(this.color.substring(3, 5), 16);
+                const b = parseInt(this.color.substring(5, 7), 16);
+
+                // Draw each particle with soft glow
+                for (let particle of this.particles) {
+                    const px = this.x + particle.offsetX;
+                    const py = this.y + particle.offsetY;
+
+                    // Multi-layer glow for soft, fluffy appearance
+                    for (let i = 0; i < 3; i++) {
+                        const glowRadius = particle.radius * (1 + i * 0.4);
+                        const glowOpacity = particle.opacity * this.opacity * (0.6 - i * 0.2);
+
+                        const gradient = ctx.createRadialGradient(px, py, 0, px, py, glowRadius);
+                        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${glowOpacity})`);
+                        gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${glowOpacity * 0.5})`);
+                        gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+                        ctx.fillStyle = gradient;
+                        ctx.beginPath();
+                        ctx.arc(px, py, glowRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Cloud Manager - Handles 3 parallax layers
+        const cloudManager = {
+            layers: [[], [], []],
+            maxClouds: 30,
+            initialized: false,
+
+            init(weatherCondition) {
+                // Clear existing clouds
+                this.layers = [[], [], []];
+
+                // Determine cloud count based on weather
+                let cloudCount;
+                switch(weatherCondition) {
+                    case 'Clear':
+                        cloudCount = [3, 4, 2]; // Back, mid, front
+                        break;
+                    case 'Clouds':
+                        cloudCount = [8, 10, 7];
+                        break;
+                    case 'Rain':
+                        cloudCount = [10, 12, 8];
+                        break;
+                    case 'Snow':
+                        cloudCount = [7, 9, 6];
+                        break;
+                    case 'Thunderstorm':
+                        cloudCount = [12, 15, 10];
+                        break;
+                    case 'Mist':
+                    case 'Fog':
+                        cloudCount = [0, 0, 0]; // No high clouds for fog
+                        break;
+                    default:
+                        cloudCount = [3, 4, 2];
+                }
+
+                // Create clouds for each layer
+                for (let layer = 0; layer < 3; layer++) {
+                    for (let i = 0; i < cloudCount[layer]; i++) {
+                        this.layers[layer].push(new CloudParticle(layer, weatherCondition));
+                    }
+                }
+
+                this.initialized = true;
+                console.log(`Clouds initialized: ${weatherCondition} (${cloudCount[0] + cloudCount[1] + cloudCount[2]} total clouds)`);
+            },
+
+            updateClouds() {
+                if (!this.initialized) return;
+
+                // Update all clouds in all layers
+                for (let layer of this.layers) {
+                    for (let cloud of layer) {
+                        cloud.update();
+                    }
+                }
+            },
+
+            drawClouds(ctx) {
+                if (!this.initialized) return;
+
+                // Draw layers in order (back to front) for proper depth
+                for (let i = 0; i < 3; i++) {
+                    for (let cloud of this.layers[i]) {
+                        cloud.draw(ctx);
+                    }
+                }
+            },
+
+            setWeatherCondition(condition) {
+                // Re-initialize with new weather condition
+                this.init(condition);
+            }
+        };
+
+        // --- Lightning System (Fractal Algorithm) ---
+        class LightningBolt {
+            constructor(type) {
+                this.type = type; // 'ground' or 'cloud'
+                this.segments = [];
+                this.branches = [];
+                this.lifetime = 0;
+                this.maxLifetime = 10; // ~167ms at 60fps
+                this.flashIntensity = 0.15; // Subtle flash
+
+                // Generate lightning path
+                if (type === 'ground') {
+                    // Cloud-to-ground lightning
+                    const startX = Math.random() * canvas.width;
+                    const startY = Math.random() * canvas.height * 0.3;
+                    const endX = startX + (Math.random() - 0.5) * 200;
+                    const endY = canvas.height;
+                    this.generateFractalPath(startX, startY, endX, endY, 0);
+                } else {
+                    // Cloud-to-cloud lightning
+                    const startX = Math.random() * canvas.width * 0.5;
+                    const startY = Math.random() * canvas.height * 0.2 + canvas.height * 0.1;
+                    const endX = startX + 200 + Math.random() * 400;
+                    const endY = startY + (Math.random() - 0.5) * 100;
+                    this.generateFractalPath(startX, startY, endX, endY, 0);
+                }
+            }
+
+            generateFractalPath(x1, y1, x2, y2, depth) {
+                const maxDepth = 4; // Recursion depth
+
+                if (depth >= maxDepth) {
+                    // Base case: Add segment
+                    this.segments.push({x1, y1, x2, y2});
+                    return;
+                }
+
+                // Calculate midpoint
+                const midX = (x1 + x2) / 2;
+                const midY = (y1 + y2) / 2;
+
+                // Offset midpoint perpendicular to path
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const length = Math.sqrt(dx * dx + dy * dy);
+
+                // Perpendicular offset (decreases with depth)
+                const offsetMagnitude = length * 0.3 * (1 - depth / maxDepth);
+                const offsetX = midX + (-dy / length) * (Math.random() - 0.5) * offsetMagnitude;
+                const offsetY = midY + (dx / length) * (Math.random() - 0.5) * offsetMagnitude;
+
+                // Add branch (30% chance, not too deep)
+                if (Math.random() < 0.3 && depth < maxDepth - 1) {
+                    const branchLength = length * (0.3 + Math.random() * 0.3);
+                    const branchAngle = (Math.random() - 0.5) * Math.PI * 0.6;
+                    const branchEndX = offsetX + Math.cos(branchAngle) * branchLength;
+                    const branchEndY = offsetY + Math.sin(branchAngle) * branchLength;
+
+                    this.branches.push({
+                        x1: offsetX,
+                        y1: offsetY,
+                        x2: branchEndX,
+                        y2: branchEndY
+                    });
+                }
+
+                // Recursive subdivision
+                this.generateFractalPath(x1, y1, offsetX, offsetY, depth + 1);
+                this.generateFractalPath(offsetX, offsetY, x2, y2, depth + 1);
+            }
+
+            update() {
+                this.lifetime++;
+
+                // Fade flash intensity
+                if (this.lifetime > 2) {
+                    this.flashIntensity *= 0.7;
+                }
+            }
+
+            draw(ctx) {
+                if (this.lifetime >= this.maxLifetime) return;
+
+                // Calculate opacity fade
+                const opacity = 1 - (this.lifetime / this.maxLifetime);
+
+                ctx.save();
+
+                // Draw main bolt segments
+                for (let segment of this.segments) {
+                    // Glow effect (multiple layers)
+                    for (let i = 0; i < 3; i++) {
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * (0.8 - i * 0.25)})`;
+                        ctx.lineWidth = 4 - i;
+                        ctx.lineCap = 'round';
+
+                        ctx.beginPath();
+                        ctx.moveTo(segment.x1, segment.y1);
+                        ctx.lineTo(segment.x2, segment.y2);
+                        ctx.stroke();
+                    }
+
+                    // Core bolt (bright white)
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(segment.x1, segment.y1);
+                    ctx.lineTo(segment.x2, segment.y2);
+                    ctx.stroke();
+                }
+
+                // Draw branches (thinner, blue-white)
+                for (let branch of this.branches) {
+                    ctx.strokeStyle = `rgba(200, 220, 255, ${opacity * 0.7})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.lineCap = 'round';
+
+                    ctx.beginPath();
+                    ctx.moveTo(branch.x1, branch.y1);
+                    ctx.lineTo(branch.x2, branch.y2);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Lightning Manager - Handles lightning during storms
+        const lightningManager = {
+            activeBolts: [],
+            nextStrikeTime: 0,
+            active: false,
+
+            activate() {
+                this.active = true;
+                this.nextStrikeTime = Date.now() + (Math.random() * 600000 + 400000); // 400-1000s (6.7-16.7 min)
+                console.log('Lightning activated');
+            },
+
+            deactivate() {
+                this.active = false;
+                this.activeBolts = [];
+                console.log('Lightning deactivated');
+            },
+
+            update() {
+                if (!this.active) return;
+
+                const now = Date.now();
+
+                // Check if time for new strike
+                if (now >= this.nextStrikeTime && this.activeBolts.length === 0) {
+                    this.createLightning();
+                    this.nextStrikeTime = now + (Math.random() * 600000 + 400000); // 400-1000s (6.7-16.7 min)
+                }
+
+                // Update existing bolts
+                for (let bolt of this.activeBolts) {
+                    bolt.update();
+                }
+
+                // Remove expired bolts
+                this.activeBolts = this.activeBolts.filter(bolt => bolt.lifetime < bolt.maxLifetime);
+            },
+
+            createLightning() {
+                // 70% cloud-to-ground, 30% cloud-to-cloud
+                const type = Math.random() < 0.7 ? 'ground' : 'cloud';
+                this.activeBolts.push(new LightningBolt(type));
+
+                // 30% chance of multi-strike (2-3 rapid flashes)
+                if (Math.random() < 0.3) {
+                    setTimeout(() => {
+                        if (this.active) {
+                            this.activeBolts.push(new LightningBolt(type));
+                        }
+                    }, 100 + Math.random() * 200);
+
+                    if (Math.random() < 0.5) {
+                        setTimeout(() => {
+                            if (this.active) {
+                                this.activeBolts.push(new LightningBolt(type));
+                            }
+                        }, 300 + Math.random() * 300);
+                    }
+                }
+            },
+
+            drawLightning(ctx) {
+                if (!this.active) return;
+
+                // Draw screen flash effect (subtle)
+                if (this.activeBolts.length > 0) {
+                    const maxFlash = Math.max(...this.activeBolts.map(b => b.flashIntensity));
+                    if (maxFlash > 0.01) {
+                        ctx.save();
+                        ctx.globalAlpha = maxFlash;
+                        ctx.fillStyle = '#aaddff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.restore();
+                    }
+                }
+
+                // Draw all bolts
+                for (let bolt of this.activeBolts) {
+                    bolt.draw(ctx);
+                }
+            }
+        };
+
         // Particle array
         let particles = [];
         let currentParticleType = 'star';
 
         function createParticles(type, count) {
+            console.log(`createParticles called: type=${type}, count=${count}`);
             particles = [];
             currentParticleType = type;
             for (let i = 0; i < count; i++) {
                 particles.push(new Particle(type));
             }
+            console.log(`Particles created: total=${particles.length}, currentType=${currentParticleType}`);
         }
 
         // Create initial particles
@@ -1157,13 +1872,20 @@
 
         // Shooting star management
         let lastShootingStarTime = Date.now();
-        let nextShootingStarDelay = Math.random() * 20000 + 15000; // 15-35 seconds
+        let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
 
         // Animation loop
+        let frameCount = 0;
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Update and draw particles (filter out those that need removal)
+            // NEW: Update cloud positions
+            cloudManager.updateClouds();
+
+            // NEW: Draw clouds (BEFORE particles for correct layering)
+            cloudManager.drawClouds(ctx);
+
+            // EXISTING: Update and draw particles (filter out those that need removal)
             particles = particles.filter(particle => {
                 const result = particle.update();
                 if (result !== 'remove') {
@@ -1173,15 +1895,37 @@
                 return false;
             });
 
-            // Add shooting stars randomly at night
+            // Debug: Log particle info every 120 frames (every 2 seconds at 60fps)
+            frameCount++;
+            if (frameCount % 120 === 0) {
+                console.log(`Animation frame ${frameCount}: particles=${particles.length}, type=${currentParticleType}, rainSplashes=${rainSplashes.length}`);
+            }
+
+            // EXISTING: Add shooting stars randomly at night
             const hour = new Date().getHours();
             if ((hour >= 20 || hour < 5) && currentParticleType === 'star') {
                 const now = Date.now();
                 if (now - lastShootingStarTime > nextShootingStarDelay) {
                     particles.push(new Particle('shootingStar'));
                     lastShootingStarTime = now;
-                    nextShootingStarDelay = Math.random() * 25000 + 15000; // Next: 15-40 seconds later
+                    nextShootingStarDelay = Math.random() * 250000 + 150000; // Next: 150-400 seconds (2.5-6.5 minutes)
                 }
+            }
+
+            // NEW: Update and draw rain splashes
+            rainSplashes = rainSplashes.filter(splash => {
+                const result = splash.update();
+                if (result !== 'remove') {
+                    splash.draw();
+                    return true;
+                }
+                return false;
+            });
+
+            // NEW: Update and draw lightning (ON TOP of everything)
+            if (lightningManager.active) {
+                lightningManager.update();
+                lightningManager.drawLightning(ctx);
             }
 
             requestAnimationFrame(animateParticles);
@@ -1190,12 +1934,27 @@
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
+            console.log(`updateParticleType called: hour=${hour}, weatherCondition=${weatherState.condition}, currentType=${currentParticleType}`);
+
             // Priority 1: Weather-based particles (if weather is available)
             if (weatherState.condition) {
                 if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle' || weatherState.condition === 'Thunderstorm') {
                     // Show rain particles for rainy weather (unless manual rain button overrides)
-                    if (currentParticleType !== 'rain' && !document.getElementById('btn-rain').classList.contains('active')) {
-                        createParticles('rain', 150);
+                    const rainButtonActive = document.getElementById('btn-rain').classList.contains('active');
+                    console.log(`Rain weather detected. currentType=${currentParticleType}, rainButtonActive=${rainButtonActive}`);
+
+                    if (currentParticleType !== 'rain' && !rainButtonActive) {
+                        // Variable rain intensity based on weather
+                        let rainCount;
+                        if (weatherState.condition === 'Drizzle') {
+                            rainCount = 100; // Light drizzle
+                        } else if (weatherState.condition === 'Thunderstorm') {
+                            rainCount = 250; // Heavy rain during storm
+                        } else {
+                            rainCount = 170; // Moderate rain
+                        }
+                        console.log(`Creating rain particles: count=${rainCount}`);
+                        createParticles('rain', rainCount);
                     }
                     return;
                 } else if (weatherState.condition === 'Snow') {
@@ -1221,10 +1980,45 @@
             }
         }
 
+        // NEW: Update weather effects (clouds and lightning)
+        function updateWeatherEffects() {
+            const condition = weatherState.condition;
+            console.log(`updateWeatherEffects called with condition: ${condition}`);
+
+            // Initialize cloud manager if not already done
+            if (!cloudManager.initialized) {
+                cloudManager.init(condition || 'Clear');
+            } else {
+                // Update clouds when weather changes
+                cloudManager.setWeatherCondition(condition || 'Clear');
+            }
+
+            // Activate/deactivate lightning based on weather
+            if (condition === 'Thunderstorm') {
+                if (!lightningManager.active) {
+                    lightningManager.activate();
+                }
+            } else {
+                if (lightningManager.active) {
+                    lightningManager.deactivate();
+                }
+            }
+
+            // Update particles based on weather (override time-based particles)
+            const now = new Date();
+            updateParticleType(now.getHours());
+        }
+
         // Extend time-of-day system
         const originalUpdateTimeOfDay = updateTimeOfDay;
-        updateTimeOfDay = function(hour) {
-            originalUpdateTimeOfDay(hour);
+        let lastUpdateTimeOfDayCall = 0;
+        updateTimeOfDay = function(hour, minutes) {
+            const now = Date.now();
+            const timeSinceLastCall = now - lastUpdateTimeOfDayCall;
+            console.log(`updateTimeOfDay called: hour=${hour}, minutes=${minutes}, timeSinceLastCall=${timeSinceLastCall}ms`);
+            lastUpdateTimeOfDayCall = now;
+
+            originalUpdateTimeOfDay(hour, minutes);
             updateParticleType(hour);
         };
 
@@ -1255,8 +2049,8 @@
 
         // Further extend time-of-day system
         const previousUpdateTimeOfDay = updateTimeOfDay;
-        updateTimeOfDay = function(hour) {
-            previousUpdateTimeOfDay(hour);
+        updateTimeOfDay = function(hour, minutes) {
+            previousUpdateTimeOfDay(hour, minutes);
             updateAmbientSound(hour);
         };
 
