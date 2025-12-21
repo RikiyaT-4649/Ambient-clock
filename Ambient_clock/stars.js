@@ -1,170 +1,247 @@
-// Hipparcos Star Catalog
-// Real star data for astronomical accuracy
-// Data Format: [RA(deg), Dec(deg), Mag, ColorHex]
-// 赤経(0-360), 赤緯(-90~+90), 等級, 色コード
+/**
+ * Ambient Flow - Star Database
+ * Based on Hipparcos Catalog (J2000.0 Epoch)
+ * * Data Format: [RA(deg), Dec(deg), Mag, ColorHex]
+ * RA: Right Ascension (0-360)
+ * Dec: Declination (-90 to +90)
+ * Mag: Apparent Magnitude (lower is brighter)
+ * ColorHex: Spectral color approximation
+ */
+
 const HIPPARCOS_STARS = [
-    // --- 1等星・超有名星 (Brightest Stars) ---
-    [101.28, -16.71, -1.46, "#aabfff"], // Sirius (おおいぬ)
-    [279.23, 38.78, 0.03, "#aabfff"],   // Vega (こと)
-    [79.17, 45.99, 0.08, "#ffd2a1"],    // Capella (ぎょしゃ)
-    [213.91, 19.10, -0.05, "#ffcc6f"],  // Arcturus (うしかい)
-    [78.63, -8.20, 0.13, "#9bb0ff"],    // Rigel (オリオン)
-    [114.82, 5.22, 0.34, "#fff4ea"],    // Procyon (こいぬ)
-    [88.79, 7.40, 0.42, "#ff9d9d"],     // Betelgeuse (オリオン)
-    [297.69, 8.86, 0.76, "#ffffff"],    // Altair (わし)
-    [68.98, 16.50, 0.86, "#ffcc6f"],    // Aldebaran (おうし)
-    [247.35, -26.43, 0.96, "#ff9d9d"],  // Antares (さそり)
-    [201.29, -11.16, 0.97, "#aabfff"],  // Spica (おとめ)
-    [116.32, 28.02, 1.14, "#ffd2a1"],   // Pollux (ふたご)
-    [344.41, -29.62, 1.16, "#ffffff"],  // Fomalhaut (みなみのうお)
-    [310.35, 45.28, 1.25, "#ffffff"],   // Deneb (はくちょう)
-    [152.09, 11.96, 1.39, "#9bb0ff"],   // Regulus (しし)
-    [10.12, 56.53, 2.25, "#ffd2a1"],    // Schedar (カシオペア)
-    [37.95, 89.26, 1.98, "#fff4ea"],    // Polaris (こぐま/北極星)
+    // --- 1. First Magnitude Stars (The brightest beacons) ---
+    [101.29, -16.72, -1.44, "#aabfff"], // Sirius (α CMa)
+    [279.23, 38.78, 0.03, "#aabfff"],   // Vega (α Lyr)
+    [79.17, 45.99, 0.08, "#ffd2a1"],    // Capella (α Aur)
+    [213.92, 19.11, -0.05, "#ffcc6f"],  // Arcturus (α Boo)
+    [78.63, -8.20, 0.18, "#9bb0ff"],    // Rigel (β Ori)
+    [114.83, 5.22, 0.40, "#fff4ea"],    // Procyon (α CMi)
+    [88.79, 7.41, 0.45, "#ff9d9d"],     // Betelgeuse (α Ori)
+    [297.70, 8.87, 0.77, "#ffffff"],    // Altair (α Aql)
+    [68.98, 16.51, 0.87, "#ffcc6f"],    // Aldebaran (α Tau)
+    [247.35, -26.43, 0.96, "#ff9d9d"],  // Antares (α Sco)
+    [201.30, -11.16, 0.98, "#aabfff"],  // Spica (α Vir)
+    [116.33, 28.03, 1.16, "#ffd2a1"],   // Pollux (β Gem)
+    [344.41, -29.62, 1.17, "#ffffff"],  // Fomalhaut (α PsA)
+    [310.36, 45.28, 1.25, "#ffffff"],   // Deneb (α Cyg)
+    [152.10, 11.97, 1.40, "#9bb0ff"],   // Regulus (α Leo)
+    [154.99, 19.92, 2.0, "#ffd2a1"],    // Algieba (γ Leo)
 
-    // --- 北斗七星 & おおぐま座 (Ursa Major) ---
-    [165.93, 61.75, 1.79, "#ffd2a1"], // Dubhe
-    [165.46, 56.38, 2.37, "#ffffff"], // Merak
-    [178.45, 53.69, 2.44, "#ffffff"], // Phecda
-    [183.85, 57.03, 3.31, "#ffffff"], // Megrez
-    [193.50, 55.95, 1.77, "#ffffff"], // Alioth
-    [200.98, 54.92, 2.27, "#ffffff"], // Mizar
-    [206.88, 49.31, 1.86, "#9bb0ff"], // Alkaid
-    [137.2, 61.8, 3.0, "#ffd2a1"],
-    [142.6, 63.1, 3.1, "#fff4ea"],
-    [158.5, 48.0, 3.0, "#aabfff"],
+    // --- 2. Second Magnitude Stars (Major Constellation Makers) ---
+    // Ursa Minor (Little Dipper)
+    [37.95, 89.26, 1.97, "#fff4ea"],    // Polaris (α UMi)
+    [227.42, 74.15, 2.07, "#ffcc6f"],   // Kochab (β UMi)
+    
+    // Ursa Major (Big Dipper)
+    [165.93, 61.75, 1.81, "#ffd2a1"],   // Dubhe
+    [165.46, 56.38, 2.34, "#ffffff"],   // Merak
+    [178.46, 53.69, 2.41, "#ffffff"],   // Phecda
+    [183.86, 57.03, 3.32, "#ffffff"],   // Megrez
+    [193.51, 55.96, 1.76, "#ffffff"],   // Alioth
+    [200.98, 54.93, 2.23, "#ffffff"],   // Mizar
+    [206.89, 49.31, 1.85, "#9bb0ff"],   // Alkaid
 
-    // --- オリオン座 (Orion) ---
-    [81.28, 6.34, 1.64, "#9bb0ff"],   // Bellatrix
-    [84.05, -1.20, 1.69, "#9bb0ff"],  // Alnilam
-    [85.18, -1.94, 1.72, "#9bb0ff"],  // Alnitak
-    [83.00, -0.29, 2.23, "#9bb0ff"],  // Mintaka
-    [86.93, -9.66, 2.06, "#9bb0ff"],  // Saiph
-    [82.0, 9.9, 3.4, "#ffffff"],      // Meissa
+    // Cassiopeia
+    [10.13, 56.54, 2.24, "#ffd2a1"],    // Schedar
+    [2.30, 59.15, 2.28, "#f8f7ff"],     // Caph
+    [14.18, 60.72, 2.15, "#9bb0ff"],    // Gamma Cas
+    [21.45, 60.24, 2.68, "#aabfff"],    // Ruchbah
+    [28.60, 63.67, 3.35, "#9bb0ff"],    // Segin
 
-    // --- カシオペア座 (Cassiopeia) ---
-    [2.29, 59.14, 2.27, "#f8f7ff"],   // Caph
-    [14.17, 60.71, 2.15, "#9bb0ff"],  // Gamma Cas
-    [21.45, 60.23, 2.68, "#aabfff"],  // Ruchbah
-    [28.59, 63.67, 3.37, "#9bb0ff"],  // Segin
+    // Orion
+    [81.28, 6.35, 1.64, "#9bb0ff"],     // Bellatrix
+    [84.05, -1.20, 1.69, "#9bb0ff"],    // Alnilam
+    [85.19, -1.94, 1.74, "#9bb0ff"],    // Alnitak
+    [83.00, -0.30, 2.25, "#9bb0ff"],    // Mintaka
+    [86.94, -9.67, 2.07, "#9bb0ff"],    // Saiph
 
-    // --- 夏の大三角周辺 (Summer Triangle Area) ---
-    // はくちょう座 (Cygnus)
-    [291.6, 51.7, 2.2, "#fff4ea"],    // Sadr
-    [306.9, 49.8, 2.4, "#ffd2a1"],    // Gienah
-    [293.0, 27.9, 3.0, "#ffd2a1"],    // Albireo (double star color mix)
-    // こと座 (Lyra)
-    [282.5, 32.6, 3.2, "#9bb0ff"],    // Sheliak
-    [284.2, 32.5, 3.2, "#aabfff"],    // Sulafat
-    // わし座 (Aquila)
-    [295.4, 10.6, 2.7, "#ffd2a1"],    // Tarazed
-    [298.8, 6.4, 3.7, "#fff4ea"],     // Alshain
+    // Gemini
+    [113.65, 31.89, 1.58, "#ffffff"],   // Castor
+    [98.10, 16.40, 1.93, "#ffffff"],    // Alhena
 
-    // --- ペガスス座・アンドロメダ座 (Autumn Square) ---
-    [2.09, 29.09, 2.06, "#9bb0ff"],   // Alpheratz
-    [345.94, 28.08, 2.42, "#ff9d9d"], // Scheat
-    [346.19, 15.20, 2.48, "#9bb0ff"], // Markab
-    [2.87, 15.18, 2.84, "#9bb0ff"],   // Algenib
-    [326.04, 9.87, 2.40, "#ffd2a1"],  // Enif
-    [17.4, 35.6, 2.0, "#ffcc6f"],     // Mirach
-    [30.9, 42.3, 2.1, "#ffd2a1"],     // Almach
+    // Taurus
+    [81.57, 28.61, 1.65, "#9bb0ff"],    // Elnath
 
-    // --- おうし座・すばる (Taurus & Pleiades) ---
-    [81.5, 28.6, 1.6, "#9bb0ff"],     // Elnath
-    [56.8, 24.1, 2.8, "#9bb0ff"],     // Alcyone (Pleiades bright)
-    [56.0, 24.0, 3.6, "#9bb0ff"],     // Atlas
-    [56.5, 23.9, 3.7, "#9bb0ff"],     // Electra
-    [55.9, 23.8, 3.8, "#9bb0ff"],     // Maia
+    // Andromeda / Pegasus (Great Square)
+    [2.10, 29.09, 2.07, "#9bb0ff"],     // Alpheratz
+    [17.43, 35.62, 2.07, "#ffcc6f"],    // Mirach
+    [30.97, 42.33, 2.10, "#ffd2a1"],    // Almach
+    [345.94, 28.08, 2.44, "#ff9d9d"],   // Scheat
+    [346.19, 15.21, 2.49, "#9bb0ff"],   // Markab
+    [2.87, 15.18, 2.83, "#9bb0ff"],     // Algenib
+    [326.05, 9.88, 2.38, "#ffd2a1"],    // Enif
 
-    // --- ふたご座 (Gemini) ---
-    [113.64, 31.88, 1.58, "#ffffff"], // Castor
-    [98.1, 16.4, 1.9, "#ffffff"],     // Alhena
-    [108.7, 22.5, 3.5, "#ffd2a1"],    // Wasat
-    [111.2, 24.4, 3.0, "#fff4ea"],    // Mebsuta
+    // Cygnus / Lyra / Aquila
+    [291.6, 51.7, 2.23, "#fff4ea"],     // Sadr
+    [306.9, 49.8, 2.48, "#ffd2a1"],     // Gienah
+    [293.1, 27.9, 3.05, "#ffd2a1"],     // Albireo
+    [295.4, 10.6, 2.72, "#ffd2a1"],     // Tarazed
 
-    // --- しし座 (Leo) ---
-    [177.26, 14.57, 2.13, "#ffffff"], // Denebola
-    [154.9, 19.8, 2.0, "#ffd2a1"],    // Algieba
-    [168.5, 15.4, 2.5, "#ffffff"],    // Zosma
+    // Others
+    [226.95, 26.71, 2.22, "#ffffff"],   // Alphecca (Corona Borealis)
+    [261.22, 52.31, 2.24, "#ffd2a1"],   // Eltanin (Draco)
+    [262.69, 12.56, 2.07, "#ffffff"],   // Rasalhague (Ophiuchus)
+    [177.26, 14.57, 2.14, "#ffffff"],   // Denebola (Leo)
+    [31.79, 23.46, 2.01, "#ffd2a1"],    // Hamal (Aries)
+    [47.04, 40.96, 2.09, "#9bb0ff"],    // Algol (Perseus)
+    [51.08, 49.86, 1.79, "#fff4ea"],    // Mirfak (Perseus)
+    [141.90, -8.66, 1.99, "#ffcc6f"],   // Alphard (Hydra)
+    [192.90, 2.40, 2.80, "#fff4ea"],    // Porrima (Virgo)
 
-    // --- おとめ座 (Virgo) ---
-    [192.9, 2.4, 2.8, "#fff4ea"],     // Porrima
-    [190.2, 1.8, 2.8, "#ffd2a1"],     // Vindemiatrix
+    // --- 3. Third Magnitude Stars (Filling the Constellations) ---
+    [108.7, 22.5, 3.50, "#ffd2a1"],     // Wasat
+    [111.2, 24.4, 3.06, "#fff4ea"],     // Mebsuta
+    [168.5, 15.4, 2.56, "#ffffff"],     // Zosma
+    [190.2, 1.8, 2.85, "#ffd2a1"],      // Vindemiatrix
+    [44.5, -40.3, 2.9, "#9bb0ff"],      // Mira
+    [89.6, 37.2, 2.69, "#aabfff"],      // Menkalinan
+    [86.4, 41.2, 3.19, "#ffd2a1"],      // Theta Aur
+    [219.0, 27.0, 2.7, "#fff4ea"],      // Izar
+    [319.6, 70.5, 2.45, "#ffffff"],     // Alderamin
+    [334.6, 57.8, 3.23, "#9bb0ff"],     // Delta Cep
+    [272.1, 51.5, 2.73, "#ffd2a1"],     // Rastaban
+    [252.0, 14.3, 2.78, "#ffd2a1"],     // Kornephoros
+    [248.1, 21.5, 3.14, "#aabfff"],     // Sarin
+    [57.0, 55.9, 2.9, "#ffffff"],       // Gamma Per
+    [58.0, 48.0, 3.0, "#9bb0ff"],       // Delta Per
+    [185.0, -15.0, 2.58, "#9bb0ff"],    // Gienah (Corvus)
+    [188.0, -20.0, 2.98, "#ffd2a1"],    // Kraz
+    [282.5, 32.6, 3.25, "#9bb0ff"],     // Sheliak
+    [284.2, 32.5, 3.25, "#aabfff"],     // Sulafat
 
-    // --- さそり座 (Scorpius) ---
-    [241.9, -3.7, 2.6, "#9bb0ff"],    // Acrab
-    [241.1, -19.8, 2.3, "#9bb0ff"],   // Dschubba
-    [263.4, -37.1, 1.6, "#9bb0ff"],   // Shaula
-    [264.4, -34.0, 2.4, "#fff4ea"],   // Sargas
+    // Pleiades Cluster (M45) - Distinctive Cluster
+    [56.8, 24.1, 2.85, "#9bb0ff"],      // Alcyone
+    [56.0, 24.0, 3.62, "#9bb0ff"],      // Atlas
+    [56.5, 23.9, 3.72, "#9bb0ff"],      // Electra
+    [55.9, 23.8, 3.87, "#9bb0ff"],      // Maia
+    [56.2, 23.8, 4.17, "#9bb0ff"],      // Merope
+    [56.1, 24.2, 4.29, "#9bb0ff"],      // Taygeta
 
-    // --- いて座 (Sagittarius) ---
-    [275.8, -29.8, 2.0, "#9bb0ff"],   // Nunki
-    [275.9, -34.4, 1.8, "#aabfff"],   // Kaus Australis
-    [273.1, -21.0, 2.8, "#ffd2a1"],   // Kaus Borealis
+    // Hyades Cluster (Taurus Head)
+    [65.4, 15.8, 3.6, "#ffd2a1"],
+    [64.5, 15.6, 3.7, "#fff4ea"],
+    [66.0, 15.4, 3.9, "#ffd2a1"],
 
-    // --- その他春〜夏の星 ---
-    [141.89, -8.65, 2.00, "#ffcc6f"], // Alphard (うみへび)
-    [217.5, -16.0, 2.8, "#aabfff"],   // Zubenelgenubi (てんびん)
-    [226.9, 26.7, 2.2, "#ffffff"],    // Alphecca (かんむり)
-    [261.2, 52.3, 2.8, "#ffd2a1"],    // Eltanin (りゅう)
-    [262.6, 12.5, 2.4, "#ffffff"],    // Rasalhague (へびつかい)
+    // --- 4. Fourth Magnitude Stars (Detailing) ---
+    [347.0, 62.2, 3.4, "#ffcc6f"],      // Zeta Cep
+    [221.2, 18.4, 3.5, "#ffffff"],      // Muphrid
+    [170.0, 35.0, 3.7, "#ffd2a1"],      // Leo Minor
+    [140.0, 15.0, 3.8, "#9bb0ff"],      // Cancer
+    [10.0, 42.0, 3.6, "#ffd2a1"],       // Andromeda
+    [15.0, 45.0, 3.8, "#ffffff"],       // Andromeda
+    [273.1, -21.0, 2.82, "#ffd2a1"],    // Kaus Borealis
+    [298.8, 6.4, 3.71, "#fff4ea"],      // Alshain
+    [153.1, 19.8, 3.4, "#f8f7ff"],      // Leo shape
+    [320.0, 5.0, 4.0, "#aabfff"],       // Aquarius
+    [330.0, 35.0, 3.9, "#ffd2a1"],      // Lacerta
 
-    // --- その他秋〜冬の星 ---
-    [31.79, 23.46, 2.00, "#ffd2a1"],  // Hamal (おひつじ)
-    [47.04, 40.95, 2.09, "#9bb0ff"],  // Algol (ペルセウス)
-    [51.08, 49.86, 1.80, "#fff4ea"],  // Mirfak (ペルセウス)
-    [12.26, -17.98, 2.02, "#ffd2a1"], // Diphda (くじら)
-    [44.5, -40.3, 3.0, "#9bb0ff"],    // Mira (くじら・変光星だが平均で)
+    // RA 0h-6h Fillers
+    [5.0, 10.0, 4.2, "#ffffff"], [12.0, 60.0, 3.9, "#aabfff"], [18.0, 30.0, 4.1, "#ffd2a1"],
+    [25.0, -5.0, 4.5, "#9bb0ff"], [33.0, 50.0, 4.0, "#fff4ea"], [40.0, 20.0, 4.3, "#ffffff"],
+    [48.0, 70.0, 3.8, "#aabfff"], [55.0, 10.0, 4.4, "#ffd2a1"], [62.0, 40.0, 4.1, "#9bb0ff"],
+    [70.0, -10.0, 4.5, "#fff4ea"], [75.0, 65.0, 3.7, "#ffffff"], [85.0, 30.0, 4.2, "#aabfff"],
+    [92.0, 15.0, 4.0, "#ffd2a1"], [350.0, 55.0, 4.3, "#9bb0ff"], [358.0, 5.0, 4.1, "#fff4ea"],
+    
+    // RA 6h-12h Fillers
+    [95.0, 50.0, 4.4, "#ffffff"], [105.0, 25.0, 4.2, "#aabfff"], [115.0, 60.0, 3.9, "#ffd2a1"],
+    [125.0, 10.0, 4.5, "#9bb0ff"], [135.0, 40.0, 4.1, "#fff4ea"], [145.0, 75.0, 3.8, "#ffffff"],
+    [155.0, 20.0, 4.3, "#aabfff"], [165.0, 55.0, 4.0, "#ffd2a1"], [175.0, 5.0, 4.4, "#9bb0ff"],
+    [100.0, 80.0, 4.2, "#fff4ea"], [110.0, 35.0, 4.5, "#ffffff"], [120.0, 65.0, 3.9, "#aabfff"],
+    [130.0, 15.0, 4.3, "#ffd2a1"], [140.0, 45.0, 4.1, "#9bb0ff"], [150.0, 85.0, 4.4, "#fff4ea"],
+    
+    // RA 12h-18h Fillers
+    [185.0, 30.0, 4.2, "#ffffff"], [195.0, 60.0, 3.9, "#aabfff"], [205.0, 10.0, 4.5, "#ffd2a1"],
+    [215.0, 40.0, 4.1, "#9bb0ff"], [225.0, 70.0, 3.8, "#fff4ea"], [235.0, 20.0, 4.3, "#ffffff"],
+    [245.0, 50.0, 4.0, "#aabfff"], [255.0, 5.0, 4.4, "#ffd2a1"], [265.0, 35.0, 4.2, "#9bb0ff"],
+    [190.0, 25.0, 4.5, "#fff4ea"], [200.0, 55.0, 4.1, "#ffffff"], [210.0, 80.0, 3.9, "#aabfff"],
+    [220.0, 15.0, 4.3, "#ffd2a1"], [230.0, 45.0, 4.0, "#9bb0ff"], [240.0, 75.0, 4.4, "#fff4ea"],
+    
+    // RA 18h-24h Fillers
+    [275.0, 20.0, 4.2, "#ffffff"], [285.0, 60.0, 3.8, "#aabfff"], [295.0, 10.0, 4.5, "#ffd2a1"],
+    [305.0, 40.0, 4.1, "#9bb0ff"], [315.0, 70.0, 3.9, "#fff4ea"], [325.0, 25.0, 4.3, "#ffffff"],
+    [335.0, 50.0, 4.0, "#aabfff"], [345.0, 5.0, 4.4, "#ffd2a1"], [355.0, 35.0, 4.2, "#9bb0ff"],
+    [280.0, 30.0, 4.5, "#fff4ea"], [290.0, 65.0, 4.1, "#ffffff"], [300.0, 15.0, 3.9, "#aabfff"],
+    [310.0, 55.0, 4.3, "#ffd2a1"], [320.0, 85.0, 4.0, "#9bb0ff"], [330.0, 10.0, 4.4, "#fff4ea"],
 
-    // --- 北天の追加 (Filler Stars for Northern Sky, Mag ~3.0-3.5) ---
-    // ぎょしゃ座
-    [89.6, 37.2, 2.7, "#aabfff"], [86.4, 41.2, 3.2, "#ffd2a1"],
-    // うしかい座
-    [219.0, 27.0, 2.7, "#fff4ea"], [221.2, 18.4, 3.0, "#ffffff"],
-    // ケフェウス座
-    [319.6, 70.5, 2.4, "#ffffff"], [334.6, 57.8, 3.2, "#9bb0ff"], [347.0, 62.2, 3.4, "#ffcc6f"],
-    // りゅう座
-    [262.0, 52.3, 2.2, "#ffd2a1"], [272.1, 51.5, 2.7, "#ffd2a1"],
-    // ヘルクレス座
-    [252.0, 14.3, 2.8, "#ffd2a1"], [248.1, 21.5, 3.1, "#aabfff"],
-    // ペルセウス座
-    [57.0, 55.9, 2.9, "#ffffff"], [58.0, 48.0, 3.0, "#9bb0ff"],
-    // アンドロメダ
-    [10.0, 42.0, 3.3, "#ffd2a1"], [15.0, 45.0, 3.5, "#ffffff"],
-    // おおぐま座 (足元など)
-    [137.0, 48.0, 3.0, "#ffd2a1"], [145.0, 47.0, 3.1, "#ffffff"], [170.0, 35.0, 3.0, "#ffd2a1"],
-    // しし座
-    [170.0, 20.0, 3.4, "#ffffff"], [140.0, 15.0, 3.5, "#9bb0ff"],
-    // うみへび座 (長いので追加)
-    [150.0, -15.0, 3.1, "#ffd2a1"], [200.0, -20.0, 3.3, "#ffffff"],
-    // カラス座
-    [185.0, -15.0, 2.6, "#9bb0ff"], [188.0, -20.0, 3.0, "#ffd2a1"],
+    // ペルセウス座二重星団 (Double Cluster - h & chi Persei)
+    // 非常に星密度が高い美しいエリア (RA: ~35deg, Dec: ~57deg)
+    [33.0, 56.5, 4.3, "#aabfff"], [33.2, 56.8, 4.4, "#ffffff"], [33.5, 56.6, 4.2, "#aabfff"],
+    [34.8, 57.1, 4.3, "#ffffff"], [35.0, 57.3, 4.1, "#aabfff"], [35.2, 57.0, 4.5, "#9bb0ff"],
+    [32.8, 56.3, 4.8, "#ffffff"], [33.8, 56.9, 4.9, "#aabfff"], [35.5, 57.5, 4.7, "#ffffff"],
 
-    // --- 隙間埋め用 (Random Real-ish Distribution for density) ---
-    [10.0, 10.0, 3.5, "#ffffff"], [20.0, 15.0, 3.4, "#aabfff"], [30.0, -5.0, 3.2, "#ffd2a1"],
-    [40.0, 25.0, 3.5, "#9bb0ff"], [50.0, 60.0, 3.3, "#fff4ea"], [60.0, -10.0, 3.1, "#ffffff"],
-    [70.0, 5.0, 3.4, "#aabfff"], [80.0, 75.0, 3.5, "#ffd2a1"], [90.0, 20.0, 3.2, "#9bb0ff"],
-    [100.0, 40.0, 3.5, "#fff4ea"], [110.0, -25.0, 3.3, "#ffffff"], [120.0, 55.0, 3.4, "#aabfff"],
-    [130.0, 10.0, 3.1, "#ffd2a1"], [140.0, 30.0, 3.5, "#9bb0ff"], [150.0, 70.0, 3.2, "#fff4ea"],
-    [160.0, -10.0, 3.4, "#ffffff"], [170.0, 45.0, 3.3, "#aabfff"], [180.0, 5.0, 3.5, "#ffd2a1"],
-    [190.0, 65.0, 3.1, "#9bb0ff"], [200.0, -20.0, 3.4, "#fff4ea"], [210.0, 35.0, 3.2, "#ffffff"],
-    [220.0, 15.0, 3.5, "#aabfff"], [230.0, 50.0, 3.3, "#ffd2a1"], [240.0, -5.0, 3.1, "#9bb0ff"],
-    [250.0, 25.0, 3.4, "#fff4ea"], [260.0, 80.0, 3.5, "#ffffff"], [270.0, 10.0, 3.2, "#aabfff"],
-    [280.0, 40.0, 3.3, "#ffd2a1"], [290.0, -15.0, 3.5, "#9bb0ff"], [300.0, 60.0, 3.1, "#fff4ea"],
-    [310.0, 20.0, 3.4, "#ffffff"], [320.0, 5.0, 3.2, "#aabfff"], [330.0, 35.0, 3.5, "#ffd2a1"],
-    [340.0, 70.0, 3.3, "#9bb0ff"], [350.0, -10.0, 3.1, "#fff4ea"], [355.0, 50.0, 3.4, "#ffffff"],
+    // かに座 プレセペ星団 (Beehive Cluster - M44)
+    // (RA: ~130deg, Dec: ~19deg)
+    [130.1, 19.6, 6.3, "#ffcc6f"], [130.0, 19.8, 6.4, "#ffffff"], [130.3, 19.5, 6.2, "#aabfff"],
+    [129.8, 19.7, 6.5, "#ffd2a1"], [130.5, 19.9, 6.3, "#ffffff"], [129.5, 20.0, 6.6, "#aabfff"],
+    
+    // かみのけ座散開星団 (Coma Star Cluster - Mel 111)
+    // (RA: ~186deg, Dec: ~26deg) - まばらだが明るい星団
+    [185.0, 26.0, 4.8, "#ffffff"], [186.5, 25.5, 4.7, "#aabfff"], [187.0, 26.8, 4.9, "#ffffff"],
+    [184.5, 26.5, 5.0, "#aabfff"], [183.0, 25.0, 4.6, "#ffd2a1"], [188.0, 27.0, 5.1, "#9bb0ff"],
 
-    // さらに密度を上げるための追加星 (Mag 3.5 - 4.0 相当)
-    [15.0, 80.0, 3.8, "#ffffff"], [45.0, 20.0, 3.9, "#aabfff"], [75.0, -5.0, 3.7, "#ffd2a1"],
-    [105.0, 50.0, 3.6, "#9bb0ff"], [135.0, 10.0, 3.8, "#fff4ea"], [165.0, 30.0, 3.9, "#ffffff"],
-    [195.0, -25.0, 3.7, "#aabfff"], [225.0, 60.0, 3.6, "#ffd2a1"], [255.0, 5.0, 3.8, "#9bb0ff"],
-    [285.0, 45.0, 3.9, "#fff4ea"], [315.0, -10.0, 3.7, "#ffffff"], [345.0, 25.0, 3.6, "#aabfff"],
-    [25.0, 15.0, 3.8, "#ffd2a1"], [55.0, 70.0, 3.9, "#9bb0ff"], [85.0, -15.0, 3.7, "#fff4ea"],
-    [115.0, 35.0, 3.6, "#ffffff"], [145.0, 5.0, 3.8, "#aabfff"], [175.0, 55.0, 3.9, "#ffd2a1"],
-    [205.0, 10.0, 3.7, "#9bb0ff"], [235.0, 40.0, 3.6, "#fff4ea"], [265.0, -20.0, 3.8, "#ffffff"],
-    [295.0, 75.0, 3.9, "#aabfff"], [325.0, 15.0, 3.7, "#ffd2a1"], [355.0, -5.0, 3.6, "#9bb0ff"],
-    [5.0, 30.0, 3.8, "#fff4ea"], [35.0, 60.0, 3.9, "#ffffff"], [65.0, 0.0, 3.7, "#aabfff"],
-    [95.0, 25.0, 3.6, "#ffd2a1"], [125.0, 85.0, 3.8, "#9bb0ff"], [155.0, -10.0, 3.9, "#fff4ea"],
-    [185.0, 40.0, 3.7, "#ffffff"], [215.0, 20.0, 3.6, "#aabfff"], [245.0, 65.0, 3.8, "#ffd2a1"],
-    [275.0, 5.0, 3.9, "#9bb0ff"], [305.0, 50.0, 3.7, "#fff4ea"], [335.0, -25.0, 3.6, "#ffffff"]
+    // さそり座 トレミー星団 (M7) & 蝶々星団 (M6) - 夏の南の低い空
+    // (RA: ~265-270deg, Dec: ~-32deg)
+    [268.5, -34.8, 3.3, "#ffffff"], [268.0, -34.5, 4.0, "#aabfff"], [269.0, -35.0, 4.5, "#ffffff"],
+    [263.5, -32.2, 4.2, "#aabfff"], [264.0, -32.5, 4.5, "#ffffff"], [263.0, -32.0, 4.8, "#9bb0ff"]
 ];
+
+/**
+ * GENERATE MILKY WAY & FAINT STARS
+ * This function creates ~600 faint stars (Mag 4.5 - 6.0) concentrated along the Galactic Plane.
+ */
+/**
+ * GENERATE MILKY WAY & FAINT STARS (High Density)
+ * 肉眼で見える限界の星（5〜6等星）を約2500個生成し、
+ * 天の川に沿った高密度エリアと、空全体のランダムな星を組み合わせて配置します。
+ */
+(function generateRichStarField() {
+    const totalFaintStars = 5000; // 星の総数
+    
+    // 星の色（スペクトル型に基づくリアルな色分布）
+    const spectralColors = [
+        "#aabfff", // O/B型 - 青白
+        "#cad7ff", // A型 - 白青
+        "#f8f7ff", // F型 - 白
+        "#fff4ea", // G型 - 黄白
+        "#ffd2a1", // K型 - 橙
+        "#ffcc6f"  // M型 - 赤橙
+    ];
+    
+    for (let i = 0; i < totalFaintStars; i++) {
+        let ra, dec;
+        
+        // ★ここがポイント：確率で「天の川」か「普通の空」かを振り分ける
+        
+        if (Math.random() < 0.40) {
+            // 【パターンA：天の川】 (全生成数の40%)
+            // 特定のライン（銀河面）に沿って集中的に星を配置する
+            ra = Math.random() * 360;
+            // 銀河面のカーブを計算
+            const galacticCenterDec = 62.6 * Math.cos((ra - 280) * Math.PI / 180) + 20;
+            // 幅を持たせる
+            const spread = (Math.random() + Math.random() - 1) * 25; 
+            dec = galacticCenterDec + spread;
+            
+        } else {
+            // 【パターンB：背景の星】 (残りの60%)
+            // 空いている場所が寂しくならないよう、空全体に均等に散らす
+            ra = Math.random() * 360;
+            // 球面上に均等になる計算 (asin使用)
+            dec = Math.asin(2 * Math.random() - 1) * (180 / Math.PI);
+        }
+
+        // 座標が範囲外に出ないように補正
+        if (dec > 90) dec = 90;
+        if (dec < -90) dec = -90;
+
+        // 等級（明るさ）: 4.5等星 〜 6.5等星
+        // Math.powを使うことで「暗い星」の方が出る確率を高くしてリアルにする
+        const mag = 4.5 + Math.pow(Math.random(), 0.8) * 2.0;
+        
+        // 色をランダムに選択
+        const color = spectralColors[Math.floor(Math.random() * spectralColors.length)];
+
+        // 配列に追加
+        HIPPARCOS_STARS.push([ra, dec, mag, color]);
+    }
+})();

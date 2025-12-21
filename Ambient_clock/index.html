@@ -19,6 +19,72 @@
     <script src="stars.js"></script>
 
     <style>
+        /* --- CSS Variables (Responsive Design) --- */
+        :root {
+            /* Background colors */
+            --bg-gradient-start: #0f2027;
+            --bg-gradient-mid: #203a43;
+            --bg-gradient-end: #2c5364;
+
+            /* Clock sizes */
+            --clock-font-size: 12vw;
+            --date-font-size: 1.5vw;
+
+            /* Weather display sizes */
+            --weather-location-size: 0.9vw;
+            --weather-temp-size: 2.5vw;
+            --weather-desc-size: 1vw;
+            --weather-sun-times-size: 0.8vw;
+
+            /* Analog clock */
+            --analog-clock-size: 300px;
+            --hour-hand-width: 6px;
+            --hour-hand-height: 80px;
+            --minute-hand-width: 4px;
+            --minute-hand-height: 110px;
+            --second-hand-width: 2px;
+            --second-hand-height: 120px;
+            --clock-center-size: 16px;
+            --clock-mark-transform-origin: 150px;
+
+            /* Control panel */
+            --control-padding: 20px 40px;
+            --control-gap: 30px;
+            --control-icon-size: 24px;
+            --control-border-radius: 60px;
+            --control-bottom: 30px;
+            --slider-width: 80px;
+            --slider-height: 4px;
+            --slider-thumb-size: 14px;
+            --divider-height: 40px;
+
+            /* Buttons */
+            --btn-padding: 10px 20px;
+            --btn-border-radius: 25px;
+            --btn-font-size: 12px;
+
+            /* Celestial body (Sun/Moon) */
+            --celestial-body-size: 80px;
+
+            /* Tools panel */
+            --tools-panel-top: 30px;
+            --tools-panel-right: 30px;
+            --tools-panel-min-width: 280px;
+            --tools-panel-padding: 20px;
+            --tools-panel-border-radius: 20px;
+            --pomodoro-display-size: 32px;
+            --tool-title-size: 14px;
+            --tool-btn-padding: 8px 12px;
+            --tool-btn-font-size: 12px;
+
+            /* Shortcut hint */
+            --shortcut-hint-bottom: 30px;
+            --shortcut-hint-right: 30px;
+            --shortcut-hint-font-size: 11px;
+            --shortcut-hint-padding: 8px 16px;
+            --shortcut-hint-border-radius: 20px;
+        }
+
         /* --- CSS --- */
         body, html {
             margin: 0;
@@ -41,18 +107,29 @@
             width: 100%;
             height: 100%;
             z-index: 1;
-            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-mid), var(--bg-gradient-end));
             transition: background 3s ease;
         }
 
-        /* Canvas for particle effects */
+        /* Canvas for particle effects (stars) */
         #particle-canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 2;
+            z-index: 2; /* Stars layer */
+            pointer-events: none;
+        }
+
+        /* Canvas for clouds */
+        #cloud-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 4; /* Clouds layer (above moon/sun) */
             pointer-events: none;
         }
 
@@ -65,7 +142,7 @@
             height: 100%;
             background-color: black;
             opacity: 0; /* Initial value is bright */
-            z-index: 3;
+            z-index: 8; /* Above all visual elements */
             pointer-events: none; /* Make clicks pass through */
             transition: opacity 0.1s;
         }
@@ -83,7 +160,7 @@
         }
 
         #time {
-            font-size: 12vw;
+            font-size: var(--clock-font-size);
             font-weight: 200;
             letter-spacing: 0.05em;
             text-shadow:
@@ -107,7 +184,7 @@
         }
 
         #date {
-            font-size: 1.5vw;
+            font-size: var(--date-font-size);
             margin-top: -10px;
             opacity: 0.9;
             letter-spacing: 0.2em;
@@ -127,8 +204,8 @@
         /* Analog clock */
         #analog-clock {
             display: none;
-            width: 300px;
-            height: 300px;
+            width: var(--analog-clock-size);
+            height: var(--analog-clock-size);
             position: relative;
             border-radius: 50%;
             background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
@@ -145,8 +222,8 @@
 
         .clock-center {
             position: absolute;
-            width: 16px;
-            height: 16px;
+            width: var(--clock-center-size);
+            height: var(--clock-center-size);
             background: radial-gradient(circle, #ffffff, #cccccc);
             border-radius: 50%;
             top: 50%;
@@ -165,28 +242,28 @@
         }
 
         .hour-hand {
-            width: 6px;
-            height: 80px;
+            width: var(--hour-hand-width);
+            height: var(--hour-hand-height);
             background: linear-gradient(to top, rgba(255,255,255,0.9), rgba(255,255,255,0.7));
-            margin-left: -3px;
+            margin-left: calc(var(--hour-hand-width) / -2);
             z-index: 3;
             box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
 
         .minute-hand {
-            width: 4px;
-            height: 110px;
+            width: var(--minute-hand-width);
+            height: var(--minute-hand-height);
             background: linear-gradient(to top, rgba(255,255,255,0.95), rgba(255,255,255,0.8));
-            margin-left: -2px;
+            margin-left: calc(var(--minute-hand-width) / -2);
             z-index: 2;
             box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
         }
 
         .second-hand {
-            width: 2px;
-            height: 120px;
+            width: var(--second-hand-width);
+            height: var(--second-hand-height);
             background: linear-gradient(to top, #ff6b6b, #ee5a6f);
-            margin-left: -1px;
+            margin-left: calc(var(--second-hand-width) / -2);
             z-index: 1;
             box-shadow: 0 0 15px rgba(255, 107, 107, 0.6);
         }
@@ -215,13 +292,13 @@
             background: rgba(255, 255, 255, 0.4);
             left: 50%;
             margin-left: -1px;
-            transform-origin: center 150px;
+            transform-origin: center var(--clock-mark-transform-origin);
         }
 
         /* Control panel */
         #controls-wrapper {
             position: absolute;
-            bottom: 30px;
+            bottom: var(--control-bottom);
             left: 0;
             width: 100%;
             display: flex;
@@ -234,10 +311,10 @@
             background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            padding: 20px 40px;
-            border-radius: 60px;
+            padding: var(--control-padding);
+            border-radius: var(--control-border-radius);
             display: flex;
-            gap: 30px;
+            gap: var(--control-gap);
             align-items: center;
             box-shadow:
                 0 10px 40px rgba(0,0,0,0.6),
@@ -266,7 +343,7 @@
         }
         
         .icon {
-            font-size: 24px;
+            font-size: var(--control-icon-size);
             cursor: pointer;
             opacity: 0.4;
             transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
@@ -293,8 +370,8 @@
         /* Slider customization */
         input[type="range"] {
             -webkit-appearance: none;
-            width: 80px;
-            height: 4px;
+            width: var(--slider-width);
+            height: var(--slider-height);
             background: rgba(255,255,255,0.2);
             border-radius: 2px;
             outline: none;
@@ -306,8 +383,8 @@
         }
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
+            width: var(--slider-thumb-size);
+            height: var(--slider-thumb-size);
             border-radius: 50%;
             background: linear-gradient(135deg, #ffffff, #e0e0e0);
             box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
@@ -322,17 +399,17 @@
             transform: scale(1.2);
         }
 
-        .divider { width: 1px; height: 40px; background: rgba(255,255,255,0.1); }
+        .divider { width: 1px; height: var(--divider-height); background: rgba(255,255,255,0.1); }
 
         /* Switch button */
         .btn-text {
             background: transparent;
             border: 1px solid rgba(255,255,255,0.3);
             color: rgba(255,255,255,0.7);
-            padding: 10px 20px;
-            border-radius: 25px;
+            padding: var(--btn-padding);
+            border-radius: var(--btn-border-radius);
             cursor: pointer;
-            font-size: 12px;
+            font-size: var(--btn-font-size);
             font-weight: 500;
             transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
             box-shadow: 0 0 0 rgba(255,255,255,0);
@@ -356,10 +433,10 @@
         /* Sun and Moon */
         #celestial-body {
             position: absolute;
-            width: 80px;
-            height: 80px;
+            width: var(--celestial-body-size);
+            height: var(--celestial-body-size);
             border-radius: 50%;
-            z-index: 1; /* Behind clouds (particle-canvas has z-index: 2) */
+            z-index: 3; /* Above stars and clouds to properly occlude them */
             transition: all 3s ease;
             pointer-events: none;
         }
@@ -383,14 +460,14 @@
         /* Tools panel (Pomodoro and Alarm) */
         #tools-panel {
             position: absolute;
-            top: 30px;
-            right: 30px;
+            top: var(--tools-panel-top);
+            right: var(--tools-panel-right);
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(15px);
             -webkit-backdrop-filter: blur(15px);
-            border-radius: 20px;
-            padding: 20px;
-            min-width: 280px;
+            border-radius: var(--tools-panel-border-radius);
+            padding: var(--tools-panel-padding);
+            min-width: var(--tools-panel-min-width);
             z-index: 15;
             border: 1px solid rgba(255,255,255,0.1);
             opacity: 0;
@@ -418,7 +495,7 @@
         }
 
         .tool-title {
-            font-size: 14px;
+            font-size: var(--tool-title-size);
             font-weight: 600;
             margin-bottom: 12px;
             color: rgba(255,255,255,0.9);
@@ -426,7 +503,7 @@
         }
 
         .pomodoro-display {
-            font-size: 32px;
+            font-size: var(--pomodoro-display-size);
             font-weight: 200;
             text-align: center;
             margin: 15px 0;
@@ -450,12 +527,12 @@
 
         .tool-btn {
             flex: 1;
-            padding: 8px 12px;
+            padding: var(--tool-btn-padding);
             background: rgba(255,255,255,0.1);
             border: 1px solid rgba(255,255,255,0.2);
             border-radius: 12px;
             color: rgba(255,255,255,0.8);
-            font-size: 12px;
+            font-size: var(--tool-btn-font-size);
             cursor: pointer;
             transition: all 0.3s;
         }
@@ -490,13 +567,13 @@
 
         .shortcut-hint {
             position: absolute;
-            bottom: 30px;
-            right: 30px;
+            bottom: var(--shortcut-hint-bottom);
+            right: var(--shortcut-hint-right);
             background: rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(10px);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 11px;
+            padding: var(--shortcut-hint-padding);
+            border-radius: var(--shortcut-hint-border-radius);
+            font-size: var(--shortcut-hint-font-size);
             color: rgba(255,255,255,0.5);
             z-index: 15;
             opacity: 0;
@@ -507,6 +584,235 @@
             opacity: 1;
         }
 
+        /* ========== RESPONSIVE DESIGN - Media Queries ========== */
+
+        /* Tablet (768px and below) */
+        @media screen and (max-width: 768px) {
+            :root {
+                --clock-font-size: 15vw;
+                --date-font-size: 3vw;
+                --weather-location-size: 2vw;
+                --weather-temp-size: 5vw;
+                --weather-desc-size: 2vw;
+                --weather-sun-times-size: 1.5vw;
+
+                --analog-clock-size: 250px;
+                --hour-hand-height: 65px;
+                --minute-hand-height: 90px;
+                --second-hand-height: 100px;
+                --clock-mark-transform-origin: 125px;
+
+                --control-padding: 15px 25px;
+                --control-gap: 20px;
+                --control-icon-size: 20px;
+                --control-border-radius: 40px;
+                --control-bottom: 20px;
+                --slider-width: 60px;
+
+                --btn-padding: 8px 15px;
+                --btn-font-size: 11px;
+
+                --celestial-body-size: 60px;
+
+                --tools-panel-top: 15px;
+                --tools-panel-right: 15px;
+                --tools-panel-min-width: 240px;
+                --tools-panel-padding: 15px;
+                --tool-title-size: 13px;
+                --pomodoro-display-size: 28px;
+
+                --shortcut-hint-bottom: 15px;
+                --shortcut-hint-right: 15px;
+                --shortcut-hint-font-size: 10px;
+                --shortcut-hint-padding: 6px 12px;
+            }
+        }
+
+        /* Smartphone Portrait (480px and below) */
+        @media screen and (max-width: 480px) and (orientation: portrait) {
+            :root {
+                --clock-font-size: 18vw;
+                --date-font-size: 4vw;
+                --weather-location-size: 3vw;
+                --weather-temp-size: 8vw;
+                --weather-desc-size: 3.5vw;
+                --weather-sun-times-size: 2.5vw;
+
+                --analog-clock-size: 200px;
+                --hour-hand-width: 5px;
+                --hour-hand-height: 50px;
+                --minute-hand-width: 3px;
+                --minute-hand-height: 70px;
+                --second-hand-height: 80px;
+                --clock-center-size: 12px;
+                --clock-mark-transform-origin: 100px;
+
+                --control-padding: 12px 20px;
+                --control-gap: 15px;
+                --control-icon-size: 18px;
+                --control-border-radius: 30px;
+                --control-bottom: 15px;
+                --slider-width: 50px;
+                --slider-height: 6px;
+                --slider-thumb-size: 18px;
+                --divider-height: 30px;
+
+                --btn-padding: 6px 12px;
+                --btn-border-radius: 20px;
+                --btn-font-size: 10px;
+
+                --celestial-body-size: 50px;
+
+                --tools-panel-top: 10px;
+                --tools-panel-right: 10px;
+                --tools-panel-min-width: auto;
+                --tools-panel-padding: 12px;
+                --tools-panel-border-radius: 15px;
+                --pomodoro-display-size: 24px;
+                --tool-title-size: 12px;
+                --tool-btn-padding: 6px 10px;
+                --tool-btn-font-size: 11px;
+
+                --shortcut-hint-font-size: 0px;
+            }
+
+            /* Additional styles for portrait mode */
+            #controls {
+                flex-wrap: wrap;
+            }
+
+            .divider {
+                display: none;
+            }
+
+            #tools-panel {
+                left: 10px;
+                right: 10px;
+                width: calc(100% - 20px);
+                min-width: unset;
+            }
+
+            .shortcut-hint {
+                display: none;
+            }
+
+            .icon {
+                min-width: 44px;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .tool-btn, .btn-text {
+                min-height: 44px;
+            }
+        }
+
+        /* Smartphone Landscape (Height 480px and below) */
+        @media screen and (max-height: 480px) and (orientation: landscape) {
+            :root {
+                --clock-font-size: 10vw;
+                --date-font-size: 2vw;
+                --weather-location-size: 1.5vw;
+                --weather-temp-size: 4vw;
+                --weather-desc-size: 1.8vw;
+                --weather-sun-times-size: 1.3vw;
+
+                --analog-clock-size: 150px;
+                --hour-hand-width: 4px;
+                --hour-hand-height: 40px;
+                --minute-hand-width: 3px;
+                --minute-hand-height: 55px;
+                --second-hand-height: 60px;
+                --clock-center-size: 10px;
+                --clock-mark-transform-origin: 75px;
+
+                --control-padding: 8px 15px;
+                --control-gap: 12px;
+                --control-icon-size: 16px;
+                --control-border-radius: 25px;
+                --control-bottom: 10px;
+                --slider-width: 50px;
+                --slider-height: 6px;
+                --slider-thumb-size: 16px;
+                --divider-height: 30px;
+
+                --btn-padding: 5px 10px;
+                --btn-border-radius: 18px;
+                --btn-font-size: 9px;
+
+                --celestial-body-size: 40px;
+
+                --tools-panel-top: 10px;
+                --tools-panel-right: 10px;
+                --tools-panel-min-width: 200px;
+                --tools-panel-padding: 10px;
+                --tools-panel-border-radius: 15px;
+                --pomodoro-display-size: 20px;
+                --tool-title-size: 11px;
+                --tool-btn-padding: 5px 8px;
+                --tool-btn-font-size: 10px;
+            }
+
+            /* Additional styles for landscape mode */
+            #weather-display {
+                margin-top: 8px !important;
+            }
+
+            #controls {
+                padding: var(--control-padding);
+            }
+
+            .icon {
+                min-width: 36px;
+                min-height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            #tools-panel {
+                max-height: calc(100vh - 20px);
+                overflow-y: auto;
+            }
+
+            .tool-section {
+                margin-bottom: 12px;
+                padding-bottom: 12px;
+            }
+
+            .pomodoro-display {
+                margin: 8px 0;
+            }
+
+            .pomodoro-status {
+                font-size: 10px;
+                margin-bottom: 6px;
+            }
+
+            .alarm-input {
+                padding: 5px 8px;
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+
+            .shortcut-hint {
+                display: none;
+            }
+        }
+
+        /* Small Smartphone Portrait (375px and below) */
+        @media screen and (max-width: 375px) and (orientation: portrait) {
+            :root {
+                --clock-font-size: 20vw;
+                --control-padding: 10px 15px;
+                --control-gap: 10px;
+                --control-icon-size: 16px;
+                --slider-width: 45px;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -514,6 +820,7 @@
     <div id="bg-container"></div>
     <canvas id="particle-canvas"></canvas>
     <div id="celestial-body"></div>
+    <canvas id="cloud-canvas"></canvas>
 
     <div id="dimmer-overlay"></div>
 
@@ -1340,10 +1647,16 @@
         const canvas = document.getElementById('particle-canvas');
         const ctx = canvas.getContext('2d');
 
+        // Cloud canvas (separate layer)
+        const cloudCanvas = document.getElementById('cloud-canvas');
+        const cloudCtx = cloudCanvas.getContext('2d');
+
         // Canvas size settings
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
+            cloudCanvas.width = window.innerWidth;
+            cloudCanvas.height = window.innerHeight;
         }
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
@@ -1406,22 +1719,54 @@
         }
 
         // Project altitude-azimuth coordinates to 2D screen position
-        // Returns null if star is below horizon
+        // Viewing perspective: Looking SOUTH, from horizon to zenith
+        // Screen Bottom = South Horizon (Az 180°, Alt 0°)
+        // Screen Left = East (Az 90°)
+        // Screen Right = West (Az 270°)
+        // Screen Top = Zenith/North
+        // Returns null if star is below horizon or outside field of view
         function projectStarToScreen(alt, az) {
             if (alt < 0) return null; // Below horizon
 
             const centerX = canvas.width / 2;
-            const horizonY = canvas.height * 0.7;
-            const radiusPx = canvas.height * 0.35;
+            const canvasHeight = canvas.height;
 
-            // Azimuthal equidistant projection
-            const altitude_distance_factor = (90 - alt) / 90; // 1.0 at horizon, 0 at zenith
-            const radius = radiusPx * altitude_distance_factor;
+            // Field of View settings
+            const horizontalFOV = 180; // Horizontal field of view in degrees (East to West)
+            const verticalFOV = 100;   // Vertical field of view in degrees (Horizon to Zenith+)
 
-            const azRad = az * Math.PI / 180;
+            // X-axis: Azimuth mapping
+            // South (180°) should be at screen center
+            // East (90°) on the left, West (270°) on the right
+            let azFromSouth = az - 180; // Convert to South-centered: -90° (East) to +90° (West)
 
-            const x = centerX + radius * Math.sin(azRad); // East is right (+x)
-            const y = horizonY - radius * Math.cos(azRad); // North is up (-y)
+            // Normalize azimuth to -180 to +180 range
+            if (azFromSouth > 180) azFromSouth -= 360;
+            if (azFromSouth < -180) azFromSouth += 360;
+
+            // Check if star is within horizontal FOV
+            if (Math.abs(azFromSouth) > horizontalFOV / 2) {
+                return null; // Outside field of view
+            }
+
+            // Calculate X position: East (negative) to left, West (positive) to right
+            const scaleX = canvas.width / horizontalFOV;
+            const x = centerX + (azFromSouth * scaleX);
+
+            // Y-axis: Altitude mapping
+            // Altitude 0° (horizon) → bottom of screen (canvasHeight)
+            // Altitude 90° (zenith) → near top of screen
+            // Use perspective scaling: stars near horizon spread more than zenith
+
+            // Apply subtle perspective effect
+            const perspectiveFactor = 1 + (1 - alt / 90) * 0.3; // 1.3 at horizon, 1.0 at zenith
+            const scaleY = (canvas.height / verticalFOV) * perspectiveFactor;
+            const y = canvasHeight - (alt * scaleY);
+
+            // Check if y is within canvas bounds
+            if (y < -50 || y > canvasHeight + 50) {
+                return null; // Too far outside vertical bounds
+            }
 
             return { x, y };
         }
@@ -1443,7 +1788,7 @@
         function magnitudeToSize(mag) {
             const magClamped = Math.max(-1.5, Math.min(6, mag));
             const normalized = (magClamped + 1.5) / 7.5; // 0 (brightest) to 1 (faintest)
-            return 0.3 + (1 - normalized) * 1.2; // 0.3 to 1.5 px
+            return 0.34 + (1 - normalized) * 1.26; // 0.34 to 1.6 px
         }
 
         // Map apparent magnitude to base opacity (before twinkling)
@@ -2445,12 +2790,13 @@
         let frameCount = 0;
         function animateParticles() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            cloudCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
 
             // NEW: Update cloud positions
             cloudManager.updateClouds();
 
-            // NEW: Draw clouds (BEFORE particles for correct layering)
-            cloudManager.drawClouds(ctx);
+            // NEW: Draw clouds on separate canvas (z-index 4, above moon/sun)
+            cloudManager.drawClouds(cloudCtx);
 
             // EXISTING: Update and draw particles (filter out those that need removal)
             particles = particles.filter(particle => {
