@@ -922,6 +922,7 @@
             temp: null,
             windSpeed: 0,
             cloudCover: 0,          // Cloud coverage (0-100%)
+            precipitation: 0,       // Precipitation rate (mm/h)
             moonPhase: 0.5,
             sunrise: null,          // Sunrise time
             sunset: null,           // Sunset time
@@ -988,6 +989,32 @@
             return 'Clear'; // Default
         }
 
+        // Calculate rain particle count based on precipitation rate (logarithmic scale)
+        // 降水量 (mm/h) からパーティクル数を対数スケールで計算
+        function calculateRainParticles(precipitationRate) {
+            if (precipitationRate <= 0) return 0;
+
+            // Logarithmic scale using log10 with offset for smooth curve
+            // Extended range: 10-1000 particles
+            // 0.01mm/h → ~24 particles (barely visible)
+            // 0.1mm/h → ~109 particles (light drizzle)
+            // 1mm/h → ~354 particles (light rain)
+            // 5mm/h → ~569 particles (moderate rain)
+            // 10mm/h → ~671 particles (heavy rain)
+            // 50mm/h → ~893 particles (very heavy rain)
+            // 100mm/h → ~1000 particles (extreme rainfall)
+
+            const baseCount = 10;
+            const multiplier = 330;
+            const offset = 0.1;  // Prevents log of very small values
+            const factor = 10;
+
+            const particles = baseCount + multiplier * Math.log10((precipitationRate + offset) * factor);
+
+            // Clamp between minimum and maximum values
+            return Math.max(10, Math.min(1000, Math.round(particles)));
+        }
+
         // Calculate Julian Day Number from a Date object
         // ユリウス日を計算（グレゴリオ暦の日付から）
         function calculateJulianDay(date) {
@@ -1038,7 +1065,7 @@
 
         // Fetch weather data from Open-Meteo API (No API key required)
         async function fetchWeatherData(lat, lon) {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
                 const response = await fetch(url);
@@ -1063,6 +1090,7 @@
                     temp: data.current.temperature_2m,
                     windSpeed: data.current.windspeed_10m, // 風速 (km/h)
                     cloudCover: cloudCover, // 雲量 (0-100%)
+                    precipitation: data.current.precipitation || 0, // 降水量 (mm/h)
                     sunrise: data.daily.sunrise[0],
                     sunset: data.daily.sunset[0],
                     moonPhase: calculateMoonPhase() // ユリウス日を使った計算 (0.00:新月 -> 0.50:満月 -> 1.00:新月)
@@ -1123,11 +1151,12 @@
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
                     weatherState.cloudCover = weather.cloudCover;
+                    weatherState.precipitation = weather.precipitation;
                     weatherState.moonPhase = weather.moonPhase;
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
 
-                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%`);
+                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%, Precipitation: ${weather.precipitation}mm/h`);
                     console.log(`Sunrise: ${formatTime(weather.sunrise)}, Sunset: ${formatTime(weather.sunset)}`);
                     console.log(`weatherState.condition set to: "${weatherState.condition}"`);
                     console.log(`Current hour: ${new Date().getHours()}`);
@@ -2853,16 +2882,25 @@
                     const rainButtonActive = rainButton ? rainButton.classList.contains('active') : false;
 
                     if (currentParticleType !== 'rain' && !rainButtonActive) {
-                        // Variable rain intensity based on weather - increased for continuous effect
+                        // Calculate rain intensity based on actual precipitation rate (logarithmic scale)
                         let rainCount;
-                        if (weatherState.condition === 'Drizzle') {
-                            rainCount = 200; // Light drizzle (increased)
-                        } else if (weatherState.condition === 'Thunderstorm') {
-                            rainCount = 450; // Heavy rain during storm (increased)
+
+                        // If we have precipitation data, use it for realistic particle count
+                        if (weatherState.precipitation > 0) {
+                            rainCount = calculateRainParticles(weatherState.precipitation);
+                            console.log(`Creating rain particles based on precipitation: ${weatherState.precipitation}mm/h → ${rainCount} particles`);
                         } else {
-                            rainCount = 350; // Moderate rain (increased)
+                            // Fallback: use weather condition if precipitation data unavailable
+                            if (weatherState.condition === 'Drizzle') {
+                                rainCount = 200; // Light drizzle
+                            } else if (weatherState.condition === 'Thunderstorm') {
+                                rainCount = 450; // Heavy rain during storm
+                            } else {
+                                rainCount = 350; // Moderate rain
+                            }
+                            console.log(`Creating rain particles (fallback): condition=${weatherState.condition} → ${rainCount} particles`);
                         }
-                        console.log(`Creating rain particles: count=${rainCount}`);
+
                         createParticles('rain', rainCount);
                     }
                     return;
@@ -3471,6 +3509,65 @@
             console.log('========================\n');
         };
 
+        // Set rain particles directly by count (for testing visual density)
+        window.setRainParticles = function(count) {
+            if (typeof count !== 'number' || count < 0 || count > 1000) {
+                console.error('Invalid particle count. Use a number between 0 and 1000.');
+                return;
+            }
+
+            console.log(`%c✓ Creating ${count} rain particles`, 'color: #4CAF50; font-weight: bold');
+            createParticles('rain', count);
+
+            console.log(`%cℹ️ Current particle count: ${particles.length}`, 'color: #2196F3');
+            console.log('Tip: Use showParticles() to see detailed particle information');
+        };
+
+        // Test precipitation rate and see resulting particle count (logarithmic scale)
+        window.testPrecipitation = function(mmPerHour) {
+            if (typeof mmPerHour !== 'number' || mmPerHour < 0) {
+                console.error('Invalid precipitation rate. Use a positive number (mm/h).');
+                console.log('\n💡 Reference values:');
+                console.log('  0.1 mm/h  = Light drizzle');
+                console.log('  1 mm/h    = Light rain');
+                console.log('  5 mm/h    = Moderate rain');
+                console.log('  10 mm/h   = Heavy rain');
+                console.log('  20 mm/h   = Very heavy rain');
+                console.log('  50 mm/h   = Extreme rainfall');
+                return;
+            }
+
+            const particleCount = calculateRainParticles(mmPerHour);
+
+            console.log('\n=== PRECIPITATION TEST ===');
+            console.log(`Input: ${mmPerHour} mm/h`);
+            console.log(`Calculated particles: ${particleCount}`);
+            console.log('==========================');
+
+            // Show calculation details
+            console.log('\n📊 Logarithmic Scale Calculation:');
+            console.log(`  Formula: 100 + 150 × log₁₀(${mmPerHour} × 10)`);
+            console.log(`  Result: ${particleCount} particles (clamped to 50-800 range)`);
+
+            // Create the particles
+            console.log(`\n%c✓ Creating ${particleCount} rain particles`, 'color: #4CAF50; font-weight: bold');
+
+            // Set weather to Rain if not already
+            if (weatherState.condition !== 'Rain') {
+                weatherState.condition = 'Rain';
+                weatherOverride = 'Rain';
+                updateWeatherEffects();
+            }
+
+            // Override precipitation value
+            weatherState.precipitation = mmPerHour;
+
+            createParticles('rain', particleCount);
+
+            console.log('Tip: Try different values to see how rain intensity changes');
+            console.log('Example: testPrecipitation(0.5) or testPrecipitation(25)');
+        };
+
         // Display all available console commands
         window.help = function() {
             console.log('\n=== AVAILABLE CONSOLE COMMANDS ===');
@@ -3481,12 +3578,14 @@
             console.log('  weatherState    - Access raw weather data object');
 
             console.log('\n🧪 Test Mode (Developer):');
-            console.log('  setWeather(condition) - Set weather (Clear/Clouds/Rain/Drizzle/Snow/Thunderstorm/Mist/Fog)');
-            console.log('  setTime(h, m, s)      - Set time (24-hour format)');
-            console.log('  setTimePreset(preset) - Quick time (midnight/dawn/sunrise/morning/noon/afternoon/sunset/dusk/night)');
-            console.log('  resetWeather()        - Reset to actual weather');
-            console.log('  resetTime()           - Reset to actual time');
-            console.log('  testMode()            - Show test mode status');
+            console.log('  setWeather(condition)      - Set weather (Clear/Clouds/Rain/Drizzle/Snow/Thunderstorm/Mist/Fog)');
+            console.log('  setTime(h, m, s)           - Set time (24-hour format)');
+            console.log('  setTimePreset(preset)      - Quick time (midnight/dawn/sunrise/morning/noon/afternoon/sunset/dusk/night)');
+            console.log('  setRainParticles(count)    - Set rain particles directly (0-1000)');
+            console.log('  testPrecipitation(mm/h)    - Test precipitation rate with logarithmic scale');
+            console.log('  resetWeather()             - Reset to actual weather');
+            console.log('  resetTime()                - Reset to actual time');
+            console.log('  testMode()                 - Show test mode status');
 
             console.log('\n❓ Help:');
             console.log('  help()          - Show this help message');
@@ -3496,6 +3595,8 @@
             console.log('  setWeather("Rain")');
             console.log('  setTime(14, 30)  // 2:30 PM');
             console.log('  setTimePreset("sunset")');
+            console.log('  setRainParticles(500)  // Create 500 rain particles');
+            console.log('  testPrecipitation(2.5)  // Simulate 2.5mm/h rainfall');
         };
 
         // Auto-display help on page load
