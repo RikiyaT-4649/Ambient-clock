@@ -880,6 +880,10 @@
 
             <div class="divider"></div>
 
+            <div class="icon" id="btn-star-labels" title="Show star names">⭐</div>
+
+            <div class="divider"></div>
+
             <button class="btn-text" id="btn-wakelock">Always On OFF</button>
         </div>
     </div>
@@ -1035,7 +1039,7 @@
 
             let jd = decimalDay + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
 
-            return jd;
+            return jd - 0.5;
         }
 
         // Calculate moon phase (0.0 = New Moon, 0.5 = Full Moon, 1.0 = New Moon)
@@ -1692,19 +1696,6 @@
 
         // ===== HIPPARCOS COORDINATE TRANSFORMATION UTILITIES =====
 
-        // Calculate Julian Day Number from a Date object
-        function calculateJulianDay(date) {
-            const y = date.getUTCFullYear();
-            const m = date.getUTCMonth() + 1;
-            const d = date.getUTCDate() + date.getUTCHours() / 24 + date.getUTCMinutes() / 1440 + date.getUTCSeconds() / 86400;
-
-            const a = Math.floor((14 - m) / 12);
-            const yAdj = y + 4800 - a;
-            const mAdj = m + 12 * a - 3;
-
-            return d + Math.floor((153 * mAdj + 2) / 5) + 365 * yAdj + Math.floor(yAdj / 4) - Math.floor(yAdj / 100) + Math.floor(yAdj / 400) - 32045;
-        }
-
         // Calculate Greenwich Mean Sidereal Time in hours
         function calculateGMST(jd) {
             const T = (jd - 2451545.0) / 36525.0;
@@ -1817,14 +1808,25 @@
         function magnitudeToSize(mag) {
             const magClamped = Math.max(-1.5, Math.min(6, mag));
             const normalized = (magClamped + 1.5) / 7.5; // 0 (brightest) to 1 (faintest)
-            return 0.34 + (1 - normalized) * 1.26; // 0.34 to 1.6 px
+
+            // Non-linear scaling to emphasize bright stars
+            // Bright stars get larger size boost
+            const scaleFactor = 1 - normalized;
+            const enhancedScale = Math.pow(scaleFactor, 0.7); // Power curve for emphasis
+
+            return 0.34 + enhancedScale * 2.5; // 0.34 to 2.84 px (brighter stars are much larger)
         }
 
         // Map apparent magnitude to base opacity (before twinkling)
         function magnitudeToBaseOpacity(mag) {
             const magClamped = Math.max(-1.5, Math.min(6, mag));
             const normalized = (magClamped + 1.5) / 7.5; // 0 (brightest) to 1 (faintest)
-            return 0.6 + (1 - normalized) * 0.4; // 0.6 to 1.0
+
+            // Non-linear scaling to emphasize bright stars
+            const scaleFactor = 1 - normalized;
+            const enhancedScale = Math.pow(scaleFactor, 0.6); // Power curve for emphasis
+
+            return 0.45 + enhancedScale * 0.55; // 0.45 to 1.0 (brighter stars more opaque)
         }
 
         // Particle class
@@ -1851,6 +1853,7 @@
                         this.baseSize = starData.size;
                         this.baseBrightness = starData.baseOpacity;
                         this.starColor = starData.color;
+                        this.magnitude = starData.mag; // Store magnitude for glow calculations
                         this.isCatalogStar = true;
                     } else {
                         // RANDOM STAR: Legacy behavior (for fallback)
@@ -1933,16 +1936,19 @@
                     this.twinklePhase3 += this.twinkleSpeed3;
                     this.shimmerOffset += this.shimmerSpeed;
 
+                    // Reduce twinkle amplitude for bright stars to prevent excessive brightness
+                    const brightnessAdjustment = this.baseBrightness > 0.8 ? 0.6 : 1.0;
+
                     // Combine multiple sine waves for complex twinkling pattern
-                    const wave1 = Math.sin(this.twinklePhase1) * 0.3;
-                    const wave2 = Math.sin(this.twinklePhase2) * 0.2;
-                    const wave3 = Math.sin(this.twinklePhase3) * 0.15;
-                    const shimmer = Math.sin(this.shimmerOffset) * 0.1;
+                    const wave1 = Math.sin(this.twinklePhase1) * 0.3 * brightnessAdjustment;
+                    const wave2 = Math.sin(this.twinklePhase2) * 0.2 * brightnessAdjustment;
+                    const wave3 = Math.sin(this.twinklePhase3) * 0.15 * brightnessAdjustment;
+                    const shimmer = Math.sin(this.shimmerOffset) * 0.1 * brightnessAdjustment;
 
                     // Base opacity with multi-wave modulation
                     let brightness = this.baseBrightness + wave1 + wave2 + wave3 + shimmer;
 
-                    // Pulse effect (occasional bright flash)
+                    // Pulse effect (occasional bright flash) - also reduced for bright stars
                     this.pulseTimer--;
                     if (this.pulseTimer <= 0 && !this.isPulsing) {
                         this.isPulsing = true;
@@ -1952,7 +1958,7 @@
 
                     if (this.isPulsing) {
                         this.pulsePhase += 0.08;
-                        const pulseBrightness = Math.sin(this.pulsePhase) * 0.6;
+                        const pulseBrightness = Math.sin(this.pulsePhase) * 0.6 * brightnessAdjustment;
                         brightness += pulseBrightness;
 
                         if (this.pulsePhase >= Math.PI) {
@@ -1960,8 +1966,9 @@
                         }
                     }
 
-                    // Clamp brightness between 0.2 and 1.0
-                    this.opacity = Math.max(0.2, Math.min(1.0, brightness));
+                    // Clamp brightness - slightly lower max for bright stars
+                    const maxBrightness = this.baseBrightness > 0.85 ? 0.92 : 1.0;
+                    this.opacity = Math.max(0.2, Math.min(maxBrightness, brightness));
 
                     // Size variation with twinkling (stars appear to pulsate)
                     this.currentSize = this.baseSize * (0.8 + this.opacity * 0.4);
@@ -2013,18 +2020,30 @@
                     const { r, g, b } = this.starColor;
                     const size = this.currentSize || this.baseSize;
 
-                    // Outer glow (larger, softer)
+                    // Calculate glow multiplier based on magnitude (brighter stars = larger glow)
+                    let glowMultiplier = 4; // Default glow size
+                    if (this.magnitude !== undefined) {
+                        // Bright stars (mag < 2) get enhanced glow
+                        if (this.magnitude < 2) {
+                            glowMultiplier = 6 + (2 - this.magnitude) * 1.5; // 6-10.5x for very bright stars
+                        } else if (this.magnitude < 3) {
+                            glowMultiplier = 5; // 5x for moderately bright stars
+                        }
+                    }
+
+                    // Outer glow (larger, softer) - enhanced for bright stars
                     const glowGradient = ctx.createRadialGradient(
                         this.x, this.y, 0,
-                        this.x, this.y, size * 4
+                        this.x, this.y, size * glowMultiplier
                     );
-                    glowGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.8})`);
-                    glowGradient.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.3})`);
+                    glowGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.9})`);
+                    glowGradient.addColorStop(0.2, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.5})`);
+                    glowGradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.2})`);
                     glowGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
 
                     ctx.fillStyle = glowGradient;
                     ctx.beginPath();
-                    ctx.arc(this.x, this.y, size * 4, 0, Math.PI * 2);
+                    ctx.arc(this.x, this.y, size * glowMultiplier, 0, Math.PI * 2);
                     ctx.fill();
 
                     // Core star (bright center)
@@ -2705,10 +2724,47 @@
 
         // Real-time star field data (Hipparcos catalog)
         let catalogStars = [];
+
+        // Star label display toggle
+        let showStarLabels = false;
         let lastStarUpdateTime = 0;
         const STAR_UPDATE_INTERVAL = 60000; // Update star positions every 60 seconds
 
         // ===== HIPPARCOS STAR FIELD MANAGEMENT =====
+
+        // Draw star labels for bright stars (mag ≤ 1.5)
+        function drawStarLabels() {
+            if (!showStarLabels || currentParticleType !== 'star' || catalogStars.length === 0) {
+                return;
+            }
+
+            // Filter for bright stars with names (mag ≤ 1.5)
+            const brightStars = catalogStars.filter(star => star.name && star.mag <= 1.5);
+
+            ctx.save();
+            ctx.font = '14px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+            ctx.shadowBlur = 8;
+
+            for (const star of brightStars) {
+                // Position label slightly above the star
+                const labelX = star.x;
+                const labelY = star.y - star.size - 15;
+
+                // Draw semi-transparent background for better readability
+                const textWidth = ctx.measureText(star.name).width;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 20);
+
+                // Draw star name in white
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillText(star.name, labelX, labelY);
+            }
+
+            ctx.restore();
+        }
 
         // Convert Hipparcos catalog to real-time positioned stars
         // This function runs every 60 seconds to update star positions
@@ -2724,7 +2780,13 @@
 
             const visibleStars = [];
 
-            for (const [ra, dec, mag, colorHex] of HIPPARCOS_STARS) {
+            for (const starEntry of HIPPARCOS_STARS) {
+                const ra = starEntry[0];
+                const dec = starEntry[1];
+                const mag = starEntry[2];
+                const colorHex = starEntry[3];
+                const name = starEntry[4] || null; // Star name (if available)
+
                 // 1. Transform celestial coordinates to horizontal
                 const { alt, az } = equatorialToHorizontal(ra, dec, lat, lon, lst);
 
@@ -2748,7 +2810,8 @@
                     y: screenPos.y,
                     size,
                     baseOpacity,
-                    color
+                    color,
+                    name // Include star name
                 });
             }
 
@@ -2866,6 +2929,9 @@
                 lightningManager.update();
                 lightningManager.drawLightning(ctx);
             }
+
+            // Draw star labels if enabled
+            drawStarLabels();
 
             requestAnimationFrame(animateParticles);
         }
@@ -3151,6 +3217,41 @@
                 clockToggleBtn.classList.remove('active');
             }
         });
+
+        // Star labels toggle button
+        const starLabelsBtn = document.getElementById('btn-star-labels');
+        starLabelsBtn.addEventListener('click', () => {
+            // Only enable if stars are currently displayed
+            if (currentParticleType !== 'star') {
+                return;
+            }
+
+            showStarLabels = !showStarLabels;
+
+            if (showStarLabels) {
+                starLabelsBtn.classList.add('active');
+            } else {
+                starLabelsBtn.classList.remove('active');
+            }
+        });
+
+        // Update button state when particle type changes
+        // (Disable star labels button when not showing stars)
+        const originalUpdateParticleType = updateParticleType;
+        updateParticleType = function(hour) {
+            originalUpdateParticleType(hour);
+
+            // If not showing stars, disable the labels and button
+            if (currentParticleType !== 'star') {
+                showStarLabels = false;
+                starLabelsBtn.classList.remove('active');
+                starLabelsBtn.style.opacity = '0.2';
+                starLabelsBtn.style.cursor = 'not-allowed';
+            } else {
+                starLabelsBtn.style.opacity = '';
+                starLabelsBtn.style.cursor = 'pointer';
+            }
+        };
 
         // Double-click to toggle fullscreen
         document.addEventListener('dblclick', (e) => {
