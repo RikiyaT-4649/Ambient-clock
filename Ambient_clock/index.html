@@ -1069,7 +1069,7 @@
 
             // 各時間帯の定義（開始時刻と色）- 夜空を暗く調整
             const timeGradients = [
-                { time: 0, colors: ['#050208', '#0a0a15', '#0d0d1a'] },      // 深夜 - より暗く
+                { time: 0, colors: ['#000000', '#020205', '#050510'] },      // 深夜 - より暗く
                 { time: 4 * 60, colors: ['#0a0a15', '#0d0d1a', '#0f1520'] }, // 明け方前 - より暗く
                 { time: 5 * 60, colors: ['#232526', '#414345', '#e96443'] }, // 夜明け
                 { time: 6 * 60, colors: ['#ff9a56', '#ffd89b', '#19547b'] }, // 日の出
@@ -1081,7 +1081,8 @@
                 { time: 17 * 60 + 30, colors: ['#ff6b6b', '#ee5a6f', '#c06c84'] }, // 夕方
                 { time: 18 * 60 + 30, colors: ['#c06c84', '#6c5b7b', '#355c7d'] }, // 日没
                 { time: 20 * 60, colors: ['#1a1f2e', '#1e2533', '#252d3d'] }, // 宵 - より暗く
-                { time: 22 * 60, colors: ['#050208', '#0a0a15', '#0d0d1a'] }, // 夜 - より暗く
+                { time: 22 * 60, colors: ['#000000', '#020205', '#050510'] }, // 夜 - より暗く
+                { time: 24 * 60, colors: ['#000000', '#020205', '#050510'] }, // つなぎ
             ];
 
             // 現在の時刻に最も近い2つの時間帯を見つける
@@ -1725,7 +1726,7 @@
                 } else if (this.type === 'rain') {
                     // Gradient streak for realistic motion blur - longer streaks
                     const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind effect
-                    const streakLength = this.length || 20; // Use custom length
+                    const streakLength = (this.speedY * 4.0) + 20; // Use custom length
                     const endX = this.x + this.speedX * 2 + (windDrift * 3);
                     const endY = this.y + streakLength;
 
@@ -1733,12 +1734,12 @@
                         this.x, this.y,
                         endX, endY
                     );
-                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0)');      // Transparent top
-                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.5)');  // Semi-transparent
-                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.8)');    // More opaque bottom
+                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0.05)');      // Transparent top
+                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.3)');  // Semi-transparent
+                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.5)');    // More opaque bottom
 
                     ctx.strokeStyle = gradient;
-                    ctx.lineWidth = this.size;
+                    ctx.lineWidth = 0.5;
                     ctx.lineCap = 'round';
                     ctx.beginPath();
                     ctx.moveTo(this.x, this.y);
