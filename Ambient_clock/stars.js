@@ -10,21 +10,21 @@
 
 const HIPPARCOS_STARS = [
     // --- 1. First Magnitude Stars (The brightest beacons) ---
-    [101.29, -16.72, -1.44, "#aabfff"], // Sirius (α CMa)
-    [279.23, 38.78, 0.03, "#aabfff"],   // Vega (α Lyr)
-    [79.17, 45.99, 0.08, "#ffd2a1"],    // Capella (α Aur)
-    [213.92, 19.11, -0.05, "#ffcc6f"],  // Arcturus (α Boo)
-    [78.63, -8.20, 0.18, "#9bb0ff"],    // Rigel (β Ori)
-    [114.83, 5.22, 0.40, "#fff4ea"],    // Procyon (α CMi)
-    [88.79, 7.41, 0.45, "#ff9d9d"],     // Betelgeuse (α Ori)
-    [297.70, 8.87, 0.77, "#ffffff"],    // Altair (α Aql)
-    [68.98, 16.51, 0.87, "#ffcc6f"],    // Aldebaran (α Tau)
-    [247.35, -26.43, 0.96, "#ff9d9d"],  // Antares (α Sco)
-    [201.30, -11.16, 0.98, "#aabfff"],  // Spica (α Vir)
-    [116.33, 28.03, 1.16, "#ffd2a1"],   // Pollux (β Gem)
-    [344.41, -29.62, 1.17, "#ffffff"],  // Fomalhaut (α PsA)
-    [310.36, 45.28, 1.25, "#ffffff"],   // Deneb (α Cyg)
-    [152.10, 11.97, 1.40, "#9bb0ff"],   // Regulus (α Leo)
+    [101.29, -16.72, -1.44, "#aabfff", "Sirius"], // Sirius (α CMa)
+    [279.23, 38.78, 0.03, "#aabfff", "Vega"],   // Vega (α Lyr)
+    [79.17, 45.99, 0.08, "#ffd2a1", "Capella"],    // Capella (α Aur)
+    [213.92, 19.11, -0.05, "#ffcc6f", "Arcturus"],  // Arcturus (α Boo)
+    [78.63, -8.20, 0.18, "#9bb0ff", "Rigel"],    // Rigel (β Ori)
+    [114.83, 5.22, 0.40, "#fff4ea", "Procyon"],    // Procyon (α CMi)
+    [88.79, 7.41, 0.45, "#ff9d9d", "Betelgeuse"],     // Betelgeuse (α Ori)
+    [297.70, 8.87, 0.77, "#ffffff", "Altair"],    // Altair (α Aql)
+    [68.98, 16.51, 0.87, "#ffcc6f", "Aldebaran"],    // Aldebaran (α Tau)
+    [247.35, -26.43, 0.96, "#ff9d9d", "Antares"],  // Antares (α Sco)
+    [201.30, -11.16, 0.98, "#aabfff", "Spica"],  // Spica (α Vir)
+    [116.33, 28.03, 1.16, "#ffd2a1", "Pollux"],   // Pollux (β Gem)
+    [344.41, -29.62, 1.17, "#ffffff", "Fomalhaut"],  // Fomalhaut (α PsA)
+    [310.36, 45.28, 1.25, "#ffffff", "Deneb"],   // Deneb (α Cyg)
+    [152.10, 11.97, 1.40, "#9bb0ff", "Regulus"],   // Regulus (α Leo)
     [154.99, 19.92, 2.0, "#ffd2a1"],    // Algieba (γ Leo)
 
     // --- 2. Second Magnitude Stars (Major Constellation Makers) ---
@@ -195,7 +195,7 @@ const HIPPARCOS_STARS = [
  * 天の川に沿った高密度エリアと、空全体のランダムな星を組み合わせて配置します。
  */
 (function generateRichStarField() {
-    const totalFaintStars = 5000; // 星の総数
+    const totalFaintStars = 2000; // 星の総数
     
     // 星の色（スペクトル型に基づくリアルな色分布）
     const spectralColors = [
