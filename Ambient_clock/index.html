@@ -1752,8 +1752,15 @@
             const canvasHeight = canvas.height;
 
             // Field of View settings
-            const horizontalFOV = 180; // Horizontal field of view in degrees (East to West)
-            const verticalFOV = 100;   // Vertical field of view in degrees (Horizon to Zenith+)
+            // Vertical FOV: 0° (horizon/bottom) to 90° (zenith/top)
+            const verticalFOV = 90;
+
+            // Use a single scale for both axes to preserve aspect ratio
+            // Scale is based on height to ensure bottom = horizon, top = zenith
+            const scale = canvasHeight / verticalFOV;
+
+            // Calculate horizontal FOV based on canvas width and same scale
+            const horizontalFOV = canvas.width / scale;
 
             // X-axis: Azimuth mapping
             // South (180°) should be at screen center
@@ -1769,21 +1776,15 @@
                 return null; // Outside field of view
             }
 
-            // Calculate X position: East (negative) to left, West (positive) to right
-            const scaleX = canvas.width / horizontalFOV;
-            const x = centerX + (azFromSouth * scaleX);
+            // Calculate X position using the same scale as Y
+            const x = centerX + (azFromSouth * scale);
 
             // Y-axis: Altitude mapping
             // Altitude 0° (horizon) → bottom of screen (canvasHeight)
-            // Altitude 90° (zenith) → near top of screen
-            // Use perspective scaling: stars near horizon spread more than zenith
+            // Altitude 90° (zenith) → top of screen (0)
+            const y = canvasHeight - (alt * scale);
 
-            // Apply subtle perspective effect
-            const perspectiveFactor = 1 + (1 - alt / 90) * 0.3; // 1.3 at horizon, 1.0 at zenith
-            const scaleY = (canvas.height / verticalFOV) * perspectiveFactor;
-            const y = canvasHeight - (alt * scaleY);
-
-            // Check if y is within canvas bounds
+            // Check if y is within canvas bounds (with small margin)
             if (y < -50 || y > canvasHeight + 50) {
                 return null; // Too far outside vertical bounds
             }
