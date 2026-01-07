@@ -122,6 +122,20 @@
             pointer-events: none;
         }
 
+        /* Sky cover overlay for rainy weather */
+        #sky-cover-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #0a0e1a 0%, #141824 100%);
+            opacity: 0;
+            z-index: 3; /* Between stars (2) and clouds (4) */
+            pointer-events: none;
+            transition: opacity 2s ease;
+        }
+
         /* Canvas for clouds */
         #cloud-canvas {
             position: absolute;
@@ -819,6 +833,7 @@
 
     <div id="bg-container"></div>
     <canvas id="particle-canvas"></canvas>
+    <div id="sky-cover-overlay"></div>
     <div id="celestial-body"></div>
     <canvas id="cloud-canvas"></canvas>
 
@@ -1064,7 +1079,7 @@
             // Get fractional part (0.0 to 1.0)
             const moonPhase = cyclePosition - Math.floor(cyclePosition);
 
-            return (moonPhase + 0.5) % 1.0;
+            return moonPhase;
         }
 
         // Fetch weather data from Open-Meteo API (No API key required)
@@ -1403,27 +1418,57 @@
         }
 
         // 時間帯判定と背景更新（分単位で滑らかに変化）
+        // 実際の日の出・日の入り時刻を使用
         function updateTimeOfDay(hour, minute = 0) {
             const bgContainer = document.getElementById('bg-container');
             const totalMinutes = hour * 60 + minute;
 
-            // 各時間帯の定義（開始時刻と色）- 夜空を暗く調整
-            const timeGradients = [
-                { time: 0, colors: ['#000000', '#020205', '#050510'] },      // 深夜 - より暗く
-                { time: 4 * 60, colors: ['#0a0a15', '#0d0d1a', '#0f1520'] }, // 明け方前 - より暗く
-                { time: 5 * 60, colors: ['#232526', '#414345', '#e96443'] }, // 夜明け
-                { time: 6 * 60, colors: ['#ff9a56', '#ffd89b', '#19547b'] }, // 日の出
-                { time: 8 * 60, colors: ['#56CCF2', '#87CEEB', '#FFE082'] }, // 朝
-                { time: 10 * 60, colors: ['#4facfe', '#87CEEB', '#e0f7fa'] },// 午前
-                { time: 12 * 60, colors: ['#4facfe', '#00f2fe', '#e1f5fe'] },// 正午
-                { time: 14 * 60, colors: ['#56CCF2', '#6dd5fa', '#ffffff'] },// 午後
-                { time: 16 * 60, colors: ['#ffa751', '#ffe259', '#87CEEB'] },// 夕方前
-                { time: 17 * 60 + 30, colors: ['#ff6b6b', '#ee5a6f', '#c06c84'] }, // 夕方
-                { time: 18 * 60 + 30, colors: ['#c06c84', '#6c5b7b', '#355c7d'] }, // 日没
-                { time: 20 * 60, colors: ['#1a1f2e', '#1e2533', '#252d3d'] }, // 宵 - より暗く
-                { time: 22 * 60, colors: ['#000000', '#020205', '#050510'] }, // 夜 - より暗く
-                { time: 24 * 60, colors: ['#000000', '#020205', '#050510'] }, // つなぎ
-            ];
+            // 実際の日の出・日の入り時刻から時間帯を計算
+            let timeGradients;
+
+            if (weatherState.sunrise && weatherState.sunset) {
+                // 実際のデータがある場合、日の出・日の入り時刻を基準に計算
+                const sunriseTime = new Date(weatherState.sunrise);
+                const sunsetTime = new Date(weatherState.sunset);
+                const sunriseMinutes = sunriseTime.getHours() * 60 + sunriseTime.getMinutes();
+                const sunsetMinutes = sunsetTime.getHours() * 60 + sunsetTime.getMinutes();
+
+                // 動的な時間帯の定義（日の出・日の入り時刻を基準）- 美しく感動的な自然の色
+                timeGradients = [
+                    { time: 0, colors: ['#000000', '#000000', '#000000'] },      // 深夜 - 真っ黒
+                    { time: Math.max(0, sunriseMinutes - 120), colors: ['#000000', '#0a0a0f', '#151520'] }, // 明け方前 - 黒から少しずつ
+                    { time: Math.max(0, sunriseMinutes - 60), colors: ['#3d3f6b', '#614b79', '#e96443'] },  // 夜明け - 紫からオレンジへ
+                    { time: sunriseMinutes, colors: ['#ff6b35', '#f7931e', '#fdc830'] },                    // 日の出 - 鮮やかなオレンジと金色
+                    { time: sunriseMinutes + 60, colors: ['#fdc830', '#f37335', '#56CCF2'] },              // 朝焼け - 金色から青へ
+                    { time: sunriseMinutes + 120, colors: ['#56CCF2', '#87CEEB', '#a8e0f7'] },             // 朝 - 爽やかな青空
+                    { time: Math.floor((sunriseMinutes + sunsetMinutes) / 2), colors: ['#3b8fd9', '#56CCF2', '#e3f2fd'] }, // 正午 - 澄んだ青空
+                    { time: sunsetMinutes - 120, colors: ['#56CCF2', '#87CEEB', '#fef5e7'] },              // 午後 - 青から柔らかな黄色へ
+                    { time: sunsetMinutes - 60, colors: ['#ffd166', '#ffa751', '#f77f00'] },               // 夕方 - 黄金色の夕暮れ
+                    { time: sunsetMinutes - 30, colors: ['#ff6f61', '#e63946', '#d62828'] },               // 夕焼け - 情熱的な赤
+                    { time: sunsetMinutes, colors: ['#d62828', '#a04668', '#5e4b8a'] },                    // 日没 - 赤から紫へ
+                    { time: sunsetMinutes + 60, colors: ['#5e4b8a', '#3d3f6b', '#2b2d5c'] },               // 宵 - 紫の黄昏
+                    { time: sunsetMinutes + 120, colors: ['#1a1a20', '#0a0a0f', '#000000'] },              // 夜 - 真っ黒へ
+                    { time: 24 * 60, colors: ['#000000', '#000000', '#000000'] },                          // 深夜（つなぎ）
+                ];
+            } else {
+                // フォールバック: 固定的な時間帯（データがない場合）- 美しく感動的な自然の色
+                timeGradients = [
+                    { time: 0, colors: ['#0a0e27', '#1a1f3a', '#2d3561'] },      // 深夜 - 深い藍色の夜空
+                    { time: 4 * 60, colors: ['#1a1f3a', '#2b2d5c', '#3d3f6b'] }, // 明け方前 - 紫がかった夜
+                    { time: 5 * 60, colors: ['#3d3f6b', '#614b79', '#e96443'] }, // 夜明け - 紫からオレンジへ
+                    { time: 6 * 60, colors: ['#ff6b35', '#f7931e', '#fdc830'] }, // 日の出 - 鮮やかなオレンジと金色
+                    { time: 8 * 60, colors: ['#fdc830', '#f37335', '#56CCF2'] }, // 朝焼け - 金色から青へ
+                    { time: 10 * 60, colors: ['#56CCF2', '#87CEEB', '#a8e0f7'] },// 朝 - 爽やかな青空
+                    { time: 12 * 60, colors: ['#3b8fd9', '#56CCF2', '#e3f2fd'] },// 正午 - 澄んだ青空
+                    { time: 14 * 60, colors: ['#56CCF2', '#87CEEB', '#fef5e7'] },// 午後 - 青から柔らかな黄色へ
+                    { time: 16 * 60, colors: ['#ffd166', '#ffa751', '#f77f00'] },// 夕方 - 黄金色の夕暮れ
+                    { time: 17 * 60 + 30, colors: ['#ff6f61', '#e63946', '#d62828'] }, // 夕焼け - 情熱的な赤
+                    { time: 18 * 60 + 30, colors: ['#d62828', '#a04668', '#5e4b8a'] }, // 日没 - 赤から紫へ
+                    { time: 20 * 60, colors: ['#5e4b8a', '#3d3f6b', '#2b2d5c'] }, // 宵 - 紫の黄昏
+                    { time: 22 * 60, colors: ['#2b2d5c', '#1a1f3a', '#0a0e27'] }, // 夜 - 深い藍色へ
+                    { time: 24 * 60, colors: ['#0a0e27', '#1a1f3a', '#2d3561'] }, // つなぎ - 深い藍色の夜空
+                ];
+            }
 
             // 現在の時刻に最も近い2つの時間帯を見つける
             let beforeGrad = timeGradients[0];
@@ -1485,6 +1530,24 @@
                 // Night time
                 return -1;
             }
+        }
+
+        // Check if it's nighttime based on actual sunrise/sunset times
+        function isNighttime() {
+            const { sunrise, sunset } = weatherState;
+
+            // If no data available yet, use fixed time (20:00-05:00)
+            if (!sunrise || !sunset) {
+                const hour = new Date().getHours();
+                return hour >= 20 || hour < 5;
+            }
+
+            const now = Date.now();
+            const sunriseTime = new Date(sunrise).getTime();
+            const sunsetTime = new Date(sunset).getTime();
+
+            // Night is after sunset or before sunrise
+            return now < sunriseTime || now > sunsetTime;
         }
 
         // Update sun and moon position and display (using actual sunrise/sunset times)
@@ -1567,92 +1630,66 @@
 
 
         function getMoonSVG(phase) {
-    // 簡易的な満ち欠け計算
-    // 0.5が満月。0と1が新月。
-    // クレーターのような模様は省略し、光と影だけで表現します
-    
-    let path = "";
-    const r = 40; // 半径
-    
-    // SVGのパスデータを作成して満ち欠けを表現するのは複雑なので、
-    // ここでは「マスク」を使ったシンプルなSVG文字列を返します。
-    
-    // 影の位置を計算 (-40 から 40)
-    let shadowX = 0;
-    
-    // 新月(0) -> 満月(0.5) -> 新月(1.0)
-    // 視覚的な「輝いている割合」を計算
-    let illumination = 0;
-    let isWaxing = phase <= 0.5; // 満ちていく
-    
-    if (phase <= 0.5) {
-        illumination = phase * 2; // 0 -> 1
-    } else {
-        illumination = (1 - phase) * 2; // 1 -> 0
+    // 数学的に正確な満ち欠け計算
+    // 外側の半円と内側の半楕円を組み合わせる方法
+    // phase: 0 = 新月, 0.5 = 満月, 1.0 = 新月
+
+    const R = 38; // SVG内での月の半径
+
+    // 楕円の水平半径: rx = R * cos(2π * phase)
+    const rx = R * Math.cos(2 * Math.PI * phase);
+
+    // 新月の場合（ほぼ見えない）
+    if (phase < 0.02 || phase > 0.98) {
+        return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1);"></div>`;
     }
 
-    // 満月のときは単純な円
-    if (Math.abs(phase - 0.5) < 0.05) {
+    // 満月の場合（完全な円）
+    if (Math.abs(phase - 0.5) < 0.02) {
         return `
-        <svg width="80" height="80" viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="38" fill="#f6f1d5" filter="url(#glow)"/>
-            <defs>
-                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-                    <feMerge>
-                        <feMergeNode in="coloredBlur"/>
-                        <feMergeNode in="SourceGraphic"/>
-                    </feMerge>
-                </filter>
-            </defs>
-        </svg>`;
+        <div style="
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3), 0 0 40px rgba(255, 255, 255, 0.15);
+        ">
+            <img src="moon.jpg" style="
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            " />
+        </div>`;
     }
 
-    // それ以外はマスクを使って表現（簡易実装: SVGのmaskを使用）
-    // cxの移動で満ち欠けをシミュレーション
-    const maskX = isWaxing ? 40 - (illumination * 80) : 40 + (illumination * 80);
-    
-    // 新月の場合
-    if (illumination < 0.05) {
-         return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1);"></div>`;
+    // 満ち欠けの描画
+    // SVGパスで「外側の半円」+「内側の半楕円」を描く
+    let clipPath;
+
+    if (phase < 0.5) {
+        // 新月から満月へ：右側が明るくなる
+        // 右半円（上から下へ）+ 楕円（下から上へ戻る）
+        const sweepFlag = rx >= 0 ? 0 : 1;
+        clipPath = `M 40 2 A 38 38 0 0 1 40 78 A ${Math.abs(rx)} 38 0 0 ${sweepFlag} 40 2 Z`;
+    } else {
+        // 満月から新月へ：左側が明るくなる
+        // 左半円（上から下へ）+ 楕円（下から上へ戻る）
+        const sweepFlag = rx <= 0 ? 0 : 1;
+        clipPath = `M 40 2 A 38 38 0 0 0 40 78 A ${Math.abs(rx)} 38 0 0 ${sweepFlag} 40 2 Z`;
     }
 
-    // 満ち欠けの描画 (clip-pathなどを使うのが現代的ですが、ここでは簡易的に「円」と「影」の重なりで表現)
-    // 実際には、phaseに基づいて mask-image を動かすCSSの方が軽量かもしれません。
-    // 今回は「円」の中に「黒い円」をずらして重ねることで三日月を作ります。
-    
-    // 影のオフセット計算
-    let offset = (0.5 - phase) * 160; // -80(左) 〜 80(右)
-    
-    // CSSでマスクを作る方が綺麗なので、インラインスタイルを返します
-    // box-shadowを使って三日月を作るテクニック
-    
+    // ユニークなclipPath IDを生成
+    const clipId = `moonClip${Math.random().toString(36).substr(2, 9)}`;
+
     return `
-    <div style="
-        width: 80px; 
-        height: 80px; 
-        border-radius: 50%; 
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 0 20px rgba(255, 255, 255, 0.5); 
-    ">
-        <div style="
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            border-radius: 50%;
-            background: #f6f1d5;
-        "></div>
-        <div style="
-            position: absolute;
-            top: 0; 
-            left: ${offset}px;
-            width: 80px; height: 80px;
-            border-radius: 50%;
-            background: rgba(0,0,0,0.85); 
-            filter: blur(4px);
-        "></div>
-    </div>`;
+    <svg width="80" height="80" viewBox="0 0 80 80" style="filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.12));">
+        <defs>
+            <clipPath id="${clipId}">
+                <path d="${clipPath}" />
+            </clipPath>
+        </defs>
+        <image href="moon.jpg" x="1" y="1" width="78" height="78" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />
+    </svg>`;
 }
 
 
@@ -2015,7 +2052,17 @@
 
             draw() {
                 ctx.save();
-                ctx.globalAlpha = this.opacity;
+
+                // Apply cloud cover effect to star visibility
+                if (this.type === 'star') {
+                    // Calculate star visibility based on cloud cover
+                    // 0% cloud = 100% visible, 100% cloud = 0-10% visible
+                    const cloudCover = weatherState.cloudCover || 0;
+                    const cloudCoverFactor = 1 - (cloudCover / 100) * 0.9; // Max 90% reduction
+                    ctx.globalAlpha = this.opacity * Math.max(0.1, cloudCoverFactor);
+                } else {
+                    ctx.globalAlpha = this.opacity;
+                }
 
                 if (this.type === 'star') {
                     const { r, g, b } = this.starColor;
@@ -2118,27 +2165,73 @@
                     ctx.fill();
                     ctx.shadowBlur = 0;
                 } else if (this.type === 'rain') {
-                    // Gradient streak for realistic motion blur - longer streaks
-                    const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind effect
-                    const streakLength = (this.speedY * 4.0) + 20; // Use custom length
-                    const endX = this.x + this.speedX * 2 + (windDrift * 3);
-                    const endY = this.y + streakLength;
+                    // Teardrop shape (realistic falling droplet)
+                    const windDrift = (weatherState.windSpeed || 0) * 0.3;
+                    const dropletLength = (this.speedY * 0.6) + 3; // Length of teardrop
+                    const dropletWidth = this.size * 1.8; // Width at widest point
 
-                    const gradient = ctx.createLinearGradient(
-                        this.x, this.y,
-                        endX, endY
-                    );
-                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0.05)');      // Transparent top
-                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.3)');  // Semi-transparent
-                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.5)');    // More opaque bottom
+                    // Calculate end point with wind effect
+                    const endX = this.x + this.speedX * 0.3 + windDrift;
+                    const endY = this.y + dropletLength;
 
-                    ctx.strokeStyle = gradient;
-                    ctx.lineWidth = 0.5;
-                    ctx.lineCap = 'round';
+                    // Create teardrop shape using bezier curves
                     ctx.beginPath();
+
+                    // Start at top (pointed tip)
                     ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(endX, endY);
+
+                    // Right curve (top to widest point)
+                    const rightControlX1 = this.x + dropletWidth * 0.4;
+                    const rightControlY1 = this.y + dropletLength * 0.2;
+                    const rightControlX2 = endX + dropletWidth * 0.5;
+                    const rightControlY2 = endY - dropletLength * 0.3;
+                    ctx.bezierCurveTo(rightControlX1, rightControlY1, rightControlX2, rightControlY2, endX + dropletWidth * 0.4, endY);
+
+                    // Bottom curve (rounded bottom)
+                    ctx.quadraticCurveTo(endX, endY + dropletLength * 0.05, endX - dropletWidth * 0.4, endY);
+
+                    // Left curve (widest point back to top)
+                    const leftControlX1 = endX - dropletWidth * 0.5;
+                    const leftControlY1 = endY - dropletLength * 0.3;
+                    const leftControlX2 = this.x - dropletWidth * 0.4;
+                    const leftControlY2 = this.y + dropletLength * 0.2;
+                    ctx.bezierCurveTo(leftControlX1, leftControlY1, leftControlX2, leftControlY2, this.x, this.y);
+
+                    // Fill with gradient
+                    const gradient = ctx.createLinearGradient(this.x, this.y, endX, endY);
+                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0.15)');   // Transparent top
+                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.35)'); // Semi-transparent middle
+                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.55)');   // More opaque bottom
+
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+
+                    // Add subtle outline for definition
+                    ctx.strokeStyle = 'rgba(136, 192, 208, 0.25)';
+                    ctx.lineWidth = 0.3;
                     ctx.stroke();
+
+                    // Add highlight for more realism (light reflection)
+                    const highlightGradient = ctx.createRadialGradient(
+                        this.x + dropletWidth * 0.15, this.y + dropletLength * 0.4, 0,
+                        this.x + dropletWidth * 0.15, this.y + dropletLength * 0.4, dropletWidth * 0.6
+                    );
+                    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                    highlightGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.1)');
+                    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                    ctx.fillStyle = highlightGradient;
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        this.x + dropletWidth * 0.15,
+                        this.y + dropletLength * 0.4,
+                        dropletWidth * 0.3,
+                        dropletLength * 0.25,
+                        Math.PI * 0.1,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
                 }
 
                 ctx.restore();
@@ -2308,137 +2401,348 @@
         // Splash particles array
         let rainSplashes = [];
 
-        // --- Cloud Particle System (Particle-Based) ---
+        // --- リアルな雲の「素材（ノイズテクスチャ）」を生成する関数 ---
+        const cloudBrushCanvas = document.createElement('canvas');
+        const cloudBrushCtx = cloudBrushCanvas.getContext('2d');
+        // 解像度を上げてディテールを細かくする
+        cloudBrushCanvas.width = 256;
+        cloudBrushCanvas.height = 256;
+
+        function createCloudBrush() {
+            const ctx = cloudBrushCtx;
+            const w = cloudBrushCanvas.width;
+            const h = cloudBrushCanvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // 1. ベースのソフトな円を描く
+            const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, w / 2);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.08)'); // 薄くする
+            gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.02)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(cx, cy, w / 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 2. 「ノイズ（ムラ）」を加える
+            // 小さな白い円をランダムに多数描画して、ザラザラした質感を出す
+            // これが写真のような「雲のディテール」になります
+            ctx.globalCompositeOperation = 'source-over';
+            const noiseCount = 250; // ノイズの粒子の数（最適化: 400 → 250）
+
+            for (let i = 0; i < noiseCount; i++) {
+                // 中心に近いほど濃密に
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * (w / 2);
+                const x = cx + Math.cos(angle) * radius * Math.pow(Math.random(), 0.5); // 中心に集める
+                const y = cy + Math.sin(angle) * radius * Math.pow(Math.random(), 0.5);
+
+                const size = Math.random() * 20 + 5; // ノイズの大きさ
+                const opacity = Math.random() * 0.05 + 0.01; // 非常に薄く
+
+                const noiseGrad = ctx.createRadialGradient(x, y, 0, x, y, size);
+                noiseGrad.addColorStop(0, `rgba(255, 255, 255, ${opacity})`);
+                noiseGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                ctx.fillStyle = noiseGrad;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        // 初期化実行
+        createCloudBrush();
+
+        // --- 画像ベースの雲クラス ---
+        // 雲画像のプリロード
+        const cloudImages = {
+            far: new Image(),
+            main: new Image(),
+            near: new Image(),
+            loaded: 0
+        };
+        cloudImages.far.src = 'cloud_far_1.png';
+        cloudImages.main.src = 'cloud_main_1.png';
+        cloudImages.near.src = 'cloud_near_1.png';
+        cloudImages.far.onload = cloudImages.main.onload = cloudImages.near.onload = () => {
+            cloudImages.loaded++;
+            if (cloudImages.loaded === 3) {
+                console.log('All cloud images loaded successfully');
+            }
+        };
+
         class CloudParticle {
-            constructor(layer, weatherCondition) {
-                this.layer = layer; // 0=back, 1=mid, 2=front
-                this.particles = [];
-                this.weatherCondition = weatherCondition;
+            constructor(layer, weatherCondition, forceType = null) {
+                this.layer = layer; // 0=遠景, 1-3=中景, 4=近景
 
-                // Position and movement
+                // レイヤーごとに画像を選択
+                if (layer === 0) {
+                    this.image = cloudImages.far;
+                    this.imageType = 'far';
+                } else if (layer === 4) {
+                    this.image = cloudImages.near;
+                    this.imageType = 'near';
+                } else {
+                    this.image = cloudImages.main;
+                    this.imageType = 'main';
+                }
+
+                // 配置：画面全体に広げるが、上部に集める
                 this.x = Math.random() * (canvas.width + 400) - 200;
-                this.y = Math.random() * (canvas.height * 0.3) + canvas.height * 0.1;
+                this.y = Math.random() * (canvas.height * 0.5);
 
-                // Speed varies by layer (parallax effect)
-                this.speed = (layer + 1) * (0.1 + Math.random() * 0.15);
+                // パララックス速度（1.6-1.8倍の緩やかな比率）
+                if (layer === 0) {
+                    this.speed = 0.05; // 基準
+                } else if (layer === 1) {
+                    this.speed = 0.08; // 1.6倍
+                } else if (layer === 2) {
+                    this.speed = 0.13; // 1.625倍（基準の2.6倍）
+                } else if (layer === 3) {
+                    this.speed = 0.22; // 1.69倍（基準の4.4倍）
+                } else if (layer === 4) {
+                    this.speed = 0.40; // 1.82倍（基準の8倍）
+                }
 
-                // Cloud frame dimensions (ellipse)
-                this.width = 180 + Math.random() * 280;
-                this.height = 90 + Math.random() * 130;
+                // Layer 2用：2枚目の速度（約7%遅く）
+                // 30秒で1周する場合、32秒で1周する感覚
+                if (layer === 2) {
+                    this.speed2 = this.speed * 0.93; // 約7%遅い
+                    this.x2 = this.x - 20; // 初期位置を少しずらす
+                }
 
-                // Weather-based appearance
-                this.setWeatherAppearance(weatherCondition);
+                // サイズ：遠景は大きく、近景は小さく（遠近感）
+                if (layer === 0) {
+                    this.scale = 1.5 + Math.random() * 0.5; // 1.5-2.0
+                } else if (layer === 4) {
+                    this.scale = 0.6 + Math.random() * 0.3; // 0.6-0.9
+                } else {
+                    this.scale = 0.8 + Math.random() * 0.4; // 0.8-1.2
+                }
 
-                // Generate cloud particles
-                this.generateCloudParticles();
+                // ミラーリング（継ぎ目をなくす）
+                this.mirrored = Math.random() > 0.5;
+
+                // 見た目の設定
+                this.setWeatherAppearance(weatherCondition, layer);
             }
 
-            setWeatherAppearance(condition) {
+            setWeatherAppearance(condition, layer) {
+                // 空気遠近法を適用したレイヤー別設定
+                // パフォーマンス重視：hue-rotateは使用せず、brightness/contrast/saturationのみ
+
+                if (layer === 0) {
+                    // === 遠くの雲 (Deep) ===
+                    // 背景に溶け込むテクスチャのような役割
+                    // 画像素材自体を深い紺色（#1A1C2C）にする想定
+                    this.baseOpacity = 0.15; // 10-20%
+                    this.brightness = 0.25; // 非常に暗く（背景の黒に近い）
+                    this.contrast = 0.7; // 低コントラスト（カラーバンディング防止）
+                    this.saturation = 0.6; // 彩度を下げて背景に溶け込ませる
+                    this.blur = 0; // ぼかしなし（遠いが明確）
+
+                } else if (layer === 4) {
+                    // === 近くの雲 (Near) ===
+                    // カメラのすぐ前を通り過ぎる霧のような役割
+                    // 画像素材自体を明るめの青灰色（#708090）にする想定
+                    this.baseOpacity = 0.25; // 20-30%
+                    this.brightness = 0.65; // やや明るめ
+                    this.contrast = 0.85; // 控えめのコントラスト
+                    this.saturation = 0.7;
+                    this.blur = 4; // 強いぼかし（ピンボケ効果）
+
+                } else {
+                    // === 中央の雲 (Middle) - Layer 1, 2, 3 ===
+                    // メインとなる雲、最もディテールを見せる
+                    // 画像素材自体を暗い青灰色（#3D4663）にする想定
+                    this.baseOpacity = 0.50; // 40-60%（レイヤーで微調整）
+                    this.brightness = 0.45; // 中間の暗さ
+                    this.contrast = 1.0; // 1.1から1.0に下げてカラーバンディング防止
+                    this.saturation = 0.8;
+                    this.blur = 0; // ぼかしなし（ディテール重視）
+
+                    // Layer 2（中央の最も重要な層）を少し濃く
+                    if (layer === 2) {
+                        this.baseOpacity = 0.60;
+                        this.brightness = 0.50;
+                    }
+                }
+
+                // 天気条件による調整
                 switch(condition) {
                     case 'Clear':
-                        this.color = '#ffffff';
-                        this.opacity = 0.5 + Math.random() * 0.2;
+                        this.baseOpacity *= 0.7;
+                        this.brightness *= 1.3;
                         break;
                     case 'Clouds':
-                        this.color = '#e8e8e8';
-                        this.opacity = 0.6 + Math.random() * 0.2;
+                        this.baseOpacity *= 1.0;
                         break;
                     case 'Rain':
-                        this.color = '#7a7a7a';
-                        this.opacity = 0.7 + Math.random() * 0.15;
-                        break;
-                    case 'Snow':
-                        this.color = '#d8d8d8';
-                        this.opacity = 0.6 + Math.random() * 0.2;
-                        break;
+                    case 'Drizzle':
                     case 'Thunderstorm':
-                        this.color = '#3a3a3a';
-                        this.opacity = 0.8 + Math.random() * 0.1;
+                        // 雨雲：より暗く、濃く
+                        this.baseOpacity *= 1.3;
+                        this.brightness *= 0.5;
+                        this.contrast *= 1.3;
+                        this.saturation *= 0.5; // 彩度を下げて重苦しく
                         break;
-                    default:
-                        this.color = '#ffffff';
-                        this.opacity = 0.5;
-                }
-            }
-
-            generateCloudParticles() {
-                // Create 10-15 circular particles within cloud frame
-                const particleCount = 10 + Math.floor(Math.random() * 6);
-                this.particles = [];
-
-                for (let i = 0; i < particleCount; i++) {
-                    // Random position within ellipse
-                    const angle = Math.random() * Math.PI * 2;
-                    const radiusX = (Math.random() * 0.5 + 0.3) * (this.width / 2);
-                    const radiusY = (Math.random() * 0.5 + 0.3) * (this.height / 2);
-
-                    this.particles.push({
-                        offsetX: Math.cos(angle) * radiusX,
-                        offsetY: Math.sin(angle) * radiusY,
-                        radius: 25 + Math.random() * 45,
-                        opacity: 0.4 + Math.random() * 0.4
-                    });
+                    case 'Mist':
+                    case 'Fog':
+                        // 霧：全体的にぼかしと透明度を上げる
+                        this.baseOpacity *= 1.5;
+                        this.brightness *= 0.9;
+                        this.blur = (this.blur || 0) + 3;
+                        this.saturation *= 0.6;
+                        break;
                 }
             }
 
             update() {
                 const windEffect = (weatherState.windSpeed || 0) * 0.05;
-
-                // Move horizontally
                 this.x += this.speed + windEffect;
 
-                // Wrap around screen
-                if (this.x > canvas.width + 200) {
-                    this.x = -this.width - 200;
-                    this.y = Math.random() * (canvas.height * 0.3) + canvas.height * 0.1;
-                    // Regenerate particles for variety
-                    this.generateCloudParticles();
+                // Layer 2の2枚目も更新
+                if (this.layer === 2 && this.x2 !== undefined) {
+                    this.x2 += this.speed2 + windEffect;
+
+                    // 2枚目のループ処理
+                    if (this.x2 > canvas.width + 400) {
+                        this.x2 = -400;
+                    }
+                }
+
+                // 画面右端から出たら左端へ戻す（シームレスループ）
+                if (this.x > canvas.width + 400) {
+                    this.x = -400;
+                    this.y = Math.random() * (canvas.height * 0.5);
+                    // ランダムにミラーリングを変更
+                    this.mirrored = Math.random() > 0.5;
                 }
             }
 
             draw(ctx) {
+                if (!this.image || !this.image.complete) return;
+
+                // 画像サイズの検証
+                if (!this.image.width || !this.image.height) return;
+
+                // フィルター文字列を先に準備
+                let filterStr = `brightness(${this.brightness}) contrast(${this.contrast}) saturate(${this.saturation || 1})`;
+                if (this.blur) {
+                    filterStr += ` blur(${this.blur}px)`;
+                }
+
+                // ブレンドモード決定
+                let blendMode = 'screen';
+                if (this.layer === 0) {
+                    blendMode = 'multiply';
+                } else if (this.layer === 4) {
+                    blendMode = 'soft-light';
+                }
+
+                // 画像サイズ計算（ぼかし時のエッジ問題対策）
+                let scaleAdjustment = 1.0;
+                if (this.blur && this.blur > 0) {
+                    scaleAdjustment = 1.0 + (this.blur * 0.01);
+                }
+                const imgWidth = this.image.width * this.scale * scaleAdjustment;
+                const imgHeight = this.image.height * this.scale * scaleAdjustment;
+
+                // === Layer 2の2枚重ね描画（干渉緩和付き） ===
+                if (this.layer === 2 && this.x2 !== undefined) {
+                    // 1枚目
+                    this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
+                        this.baseOpacity * 0.6, blendMode, filterStr);
+
+                    // === 干渉緩和：半透明グラデーション層（クッション） ===
+                    ctx.save();
+                    ctx.globalAlpha = this.baseOpacity * 0.15;
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.filter = 'blur(8px)'; // 強めのぼかし
+                    ctx.translate((this.x + this.x2) / 2, this.y); // 中間位置
+
+                    // ぼかしたグラデーション塗りつぶし
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, imgWidth * 0.7);
+                    gradient.addColorStop(0, 'rgba(200, 210, 230, 0.6)');
+                    gradient.addColorStop(0.5, 'rgba(200, 210, 230, 0.3)');
+                    gradient.addColorStop(1, 'rgba(200, 210, 230, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(-imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight);
+                    ctx.restore();
+
+                    // 2枚目（速度差で位置が異なる）
+                    this.drawCloudWithEffects(ctx, this.x2, this.y, imgWidth, imgHeight,
+                        this.baseOpacity * 0.5, blendMode, filterStr);
+                } else {
+                    // === 通常の描画 ===
+                    this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
+                        this.baseOpacity, blendMode, filterStr);
+                }
+            }
+
+            // 雲を各種エフェクト付きで描画するヘルパーメソッド
+            drawCloudWithEffects(ctx, x, y, imgWidth, imgHeight, opacity, blendMode, filterStr) {
                 ctx.save();
 
-                // Parse color
-                const r = parseInt(this.color.substring(1, 3), 16);
-                const g = parseInt(this.color.substring(3, 5), 16);
-                const b = parseInt(this.color.substring(5, 7), 16);
+                // オフスクリーンキャンバスを使用してマスクと合成
+                const offscreen = document.createElement('canvas');
+                offscreen.width = imgWidth * 2; // シームレス用に2倍
+                offscreen.height = imgHeight;
+                const offCtx = offscreen.getContext('2d');
 
-                // Draw each particle with soft glow
-                for (let particle of this.particles) {
-                    const px = this.x + particle.offsetX;
-                    const py = this.y + particle.offsetY;
+                // === 1. 雲画像を描画 ===
+                offCtx.filter = filterStr;
+                offCtx.drawImage(this.image, 0, 0, imgWidth, imgHeight);
+                offCtx.drawImage(this.image, imgWidth, 0, imgWidth, imgHeight); // シームレス用
 
-                    // Multi-layer glow for soft, fluffy appearance
-                    for (let i = 0; i < 3; i++) {
-                        const glowRadius = particle.radius * (1 + i * 0.4);
-                        const glowOpacity = particle.opacity * this.opacity * (0.6 - i * 0.2);
+                // === 2. 垂直方向の色調グラデーション（厚み表現） ===
+                offCtx.globalCompositeOperation = 'overlay';
+                const verticalGradient = offCtx.createLinearGradient(0, 0, 0, imgHeight);
+                verticalGradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // 上部：明るく
+                verticalGradient.addColorStop(0.5, 'rgba(128, 128, 128, 0)'); // 中央：変化なし
+                verticalGradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)'); // 下部：暗く
+                offCtx.fillStyle = verticalGradient;
+                offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
-                        const gradient = ctx.createRadialGradient(px, py, 0, px, py, glowRadius);
-                        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${glowOpacity})`);
-                        gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${glowOpacity * 0.5})`);
-                        gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+                // === 3. ソフトエッジ・マスク（放射状透過） ===
+                offCtx.globalCompositeOperation = 'destination-in';
+                const radialMask = offCtx.createRadialGradient(
+                    imgWidth, imgHeight / 2, 0,
+                    imgWidth, imgHeight / 2, imgWidth * 0.8
+                );
+                radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)'); // 中心：完全不透明
+                radialMask.addColorStop(0.6, 'rgba(0, 0, 0, 0.9)'); // 60%地点：ほぼ不透明
+                radialMask.addColorStop(0.85, 'rgba(0, 0, 0, 0.3)'); // 85%地点：薄く
+                radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)'); // 外側：完全透明
+                offCtx.fillStyle = radialMask;
+                offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
-                        ctx.fillStyle = gradient;
-                        ctx.beginPath();
-                        ctx.arc(px, py, glowRadius, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
+                // === 4. メインキャンバスに合成 ===
+                ctx.globalAlpha = opacity;
+                ctx.globalCompositeOperation = blendMode;
+                ctx.translate(x, y);
+                if (this.mirrored) {
+                    ctx.scale(-1, 1);
                 }
+                ctx.drawImage(offscreen, -imgWidth, -imgHeight / 2);
 
                 ctx.restore();
             }
         }
 
-        // Cloud Manager - Handles 3 parallax layers
+        // Cloud Manager - Handles 5 parallax layers (層を増やしてより立体的に)
         const cloudManager = {
-            layers: [[], [], []],
-            maxClouds: 70, // Updated to match new cloud count formula
+            layers: [[], [], [], [], []],
+            maxClouds: 50, // 層を増やしたので総数も少し増やす
             initialized: false,
+            forceCloudType: null, // For testing: force specific cloud type
 
             init(weatherCondition) {
                 // Clear existing clouds
-                this.layers = [[], [], []];
+                this.layers = [[], [], [], [], []];
 
                 // Determine cloud count based on actual cloud cover data
                 const cloudCover = weatherState.cloudCover || 0; // 0-100%
@@ -2446,39 +2750,43 @@
 
                 // Special cases for specific weather conditions
                 if (weatherCondition === 'Mist' || weatherCondition === 'Fog') {
-                    cloudCount = [0, 0, 0]; // No high clouds for fog
+                    cloudCount = [0, 0, 0, 0, 0]; // No high clouds for fog
                 } else if (weatherCondition === 'Thunderstorm') {
                     // Thunderstorm: dense, dark clouds (boost cloud count)
-                    const baseCount = Math.floor(cloudCover * 0.15); // 0-15 per layer
+                    const baseCount = Math.floor(cloudCover * 0.12); // 0-12 per layer
                     cloudCount = [
-                        Math.max(10, baseCount),
-                        Math.max(12, baseCount + 2),
-                        Math.max(8, baseCount - 2)
+                        Math.max(8, baseCount),
+                        Math.max(10, baseCount + 2),
+                        Math.max(12, baseCount + 4),
+                        Math.max(10, baseCount + 2),
+                        Math.max(6, baseCount - 2)
                     ];
                 } else {
                     // Use actual cloud cover percentage to determine count
                     // 0% = minimal clouds, 100% = maximum clouds
-                    const baseFactor = cloudCover / 100; // 0.0 - 1.0
+                    const totalClouds = Math.floor(cloudCover * 0.5); // 0-50 clouds max
 
-                    // Layer distribution: back (30%), mid (40%), front (30%)
-                    const totalClouds = Math.floor(cloudCover * 0.7); // 0-70 clouds max
+                    // Layer distribution: 5層に分散（奥から手前へ）
                     cloudCount = [
-                        Math.max(1, Math.floor(totalClouds * 0.30)), // Back layer
-                        Math.max(2, Math.floor(totalClouds * 0.40)), // Mid layer (most clouds)
-                        Math.max(1, Math.floor(totalClouds * 0.30))  // Front layer
+                        Math.max(1, Math.floor(totalClouds * 0.15)), // Layer 0 (最奥)
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 1
+                        Math.max(2, Math.floor(totalClouds * 0.30)), // Layer 2 (中央・最多)
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 3
+                        Math.max(1, Math.floor(totalClouds * 0.15))  // Layer 4 (最前)
                     ];
                 }
 
                 // Create clouds for each layer
-                for (let layer = 0; layer < 3; layer++) {
+                for (let layer = 0; layer < 5; layer++) {
                     for (let i = 0; i < cloudCount[layer]; i++) {
-                        this.layers[layer].push(new CloudParticle(layer, weatherCondition));
+                        this.layers[layer].push(new CloudParticle(layer, weatherCondition, this.forceCloudType));
                     }
                 }
 
                 this.initialized = true;
-                const totalCloudCount = cloudCount[0] + cloudCount[1] + cloudCount[2];
-                console.log(`Clouds initialized: ${weatherCondition}, Cloud cover: ${cloudCover}% (${totalCloudCount} total clouds: ${cloudCount[0]}/${cloudCount[1]}/${cloudCount[2]})`);
+                const totalCloudCount = cloudCount.reduce((a, b) => a + b, 0);
+                const typeInfo = this.forceCloudType ? ` (forced type: ${this.forceCloudType})` : '';
+                console.log(`Clouds initialized: ${weatherCondition}, Cloud cover: ${cloudCover}% (${totalCloudCount} total clouds: ${cloudCount.join('/')})${typeInfo}`);
             },
 
             updateClouds() {
@@ -2496,7 +2804,7 @@
                 if (!this.initialized) return;
 
                 // Draw layers in order (back to front) for proper depth
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 5; i++) {
                     for (let cloud of this.layers[i]) {
                         cloud.draw(ctx);
                     }
@@ -2905,8 +3213,8 @@
             frameCount++;
 
             // EXISTING: Add shooting stars randomly at night
-            const hour = new Date().getHours();
-            if ((hour >= 20 || hour < 5) && currentParticleType === 'star') {
+            // Use actual sunrise/sunset times to determine nighttime
+            if (isNighttime() && currentParticleType === 'star') {
                 const now = Date.now();
                 if (now - lastShootingStarTime > nextShootingStarDelay) {
                     particles.push(new Particle('shootingStar'));
@@ -2981,7 +3289,8 @@
             }
 
             // Priority 2: Time-based particles (stars at night)
-            if (hour >= 20 || hour < 5) {
+            // Use actual sunrise/sunset times to determine nighttime
+            if (isNighttime()) {
                 if (currentParticleType !== 'star') {
                     console.log('Transitioning to night mode - loading Hipparcos catalog stars');
                     initializeCatalogStars();
@@ -3012,6 +3321,19 @@
             } else {
                 // Update clouds when weather changes
                 cloudManager.setWeatherCondition(condition || 'Clear');
+            }
+
+            // Sky cover overlay control (for rainy weather)
+            const skyCoverOverlay = document.getElementById('sky-cover-overlay');
+            if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm') {
+                // Fade in: thick clouds block the stars
+                skyCoverOverlay.style.opacity = '0.9';
+            } else if (condition === 'Clouds') {
+                // Partially block the stars
+                skyCoverOverlay.style.opacity = '0.3';
+            } else {
+                // Fade out: clear sky
+                skyCoverOverlay.style.opacity = '0';
             }
 
             // Activate/deactivate lightning based on weather
@@ -3516,6 +3838,35 @@
 
         // --- Developer Test Mode Functions ---
 
+        // Set cloud type (cumulus, stratus, cirrus, cumulonimbus, or auto)
+        window.setCloudType = function(type) {
+            const validTypes = ['cumulus', 'stratus', 'cirrus', 'cumulonimbus', 'auto'];
+
+            if (!validTypes.includes(type)) {
+                console.error(`Invalid cloud type. Use one of: ${validTypes.join(', ')}`);
+                return;
+            }
+
+            if (type === 'auto') {
+                cloudManager.forceCloudType = null;
+                console.log('%c✓ Cloud type set to: AUTO (normal behavior)', 'color: #4CAF50; font-weight: bold');
+            } else {
+                cloudManager.forceCloudType = type;
+                console.log(`%c✓ Cloud type set to: ${type.toUpperCase()}`, 'color: #4CAF50; font-weight: bold');
+            }
+
+            // Reinitialize clouds with new type
+            const currentCondition = weatherState.condition || 'Clear';
+            cloudManager.init(currentCondition);
+
+            console.log(`Cloud types:
+  - cumulus: Puffy, rounded clouds (12-20 particles)
+  - stratus: Wide, flat layered clouds (15-25 particles)
+  - cirrus: Thin, wispy clouds (8-14 particles)
+  - cumulonimbus: Towering storm clouds (18-30 particles)
+  - auto: Automatic based on layer and weather`);
+        };
+
         // Set weather condition
         window.setWeather = function(condition) {
             const validConditions = ['Clear', 'Clouds', 'Rain', 'Drizzle', 'Snow', 'Thunderstorm', 'Mist', 'Fog'];
@@ -3681,6 +4032,7 @@
 
             console.log('\n🧪 Test Mode (Developer):');
             console.log('  setWeather(condition)      - Set weather (Clear/Clouds/Rain/Drizzle/Snow/Thunderstorm/Mist/Fog)');
+            console.log('  setCloudType(type)         - Set cloud type (cumulus/stratus/cirrus/cumulonimbus/auto)');
             console.log('  setTime(h, m, s)           - Set time (24-hour format)');
             console.log('  setTimePreset(preset)      - Quick time (midnight/dawn/sunrise/morning/noon/afternoon/sunset/dusk/night)');
             console.log('  setRainParticles(count)    - Set rain particles directly (0-1000)');
@@ -3695,6 +4047,7 @@
 
             console.log('💡 Examples:');
             console.log('  setWeather("Rain")');
+            console.log('  setCloudType("cumulus")  // Show only cumulus clouds');
             console.log('  setTime(14, 30)  // 2:30 PM');
             console.log('  setTimePreset("sunset")');
             console.log('  setRainParticles(500)  // Create 500 rain particles');
