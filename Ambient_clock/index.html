@@ -1152,6 +1152,9 @@
         }
 
         // Initialize weather system
+        // Track last weather update to prevent duplicate updates
+        let lastWeatherUpdate = { date: null, hour: null };
+
         async function initWeather() {
             try {
                 const coords = await fetchUserLocation();
@@ -1196,11 +1199,69 @@
 
                     // NEW: Initialize weather effects (clouds, lightning, and particles)
                     updateWeatherEffects();
+
+                    // Record initial update time
+                    lastWeatherUpdate = { date: now.toDateString(), hour: now.getHours() };
                 }
             } catch (error) {
                 console.error('Weather initialization failed:', error);
             }
         }
+
+        // Update weather data (for scheduled updates)
+        async function updateWeather() {
+            try {
+                const coords = weatherState.coords;
+                const weather = await fetchWeatherData(coords.lat, coords.lon);
+
+                if (weather) {
+                    weatherState.condition = weather.condition;
+                    weatherState.temp = weather.temp;
+                    weatherState.windSpeed = weather.windSpeed;
+                    weatherState.cloudCover = weather.cloudCover;
+                    weatherState.precipitation = weather.precipitation;
+                    weatherState.moonPhase = weather.moonPhase;
+                    weatherState.sunrise = weather.sunrise;
+                    weatherState.sunset = weather.sunset;
+
+                    console.log(`Weather updated: ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%`);
+
+                    // Update UI
+                    document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
+                    document.getElementById('weather-desc').textContent = weather.condition;
+                    document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
+
+                    // Update weather-dependent visuals
+                    updateWeatherEffects();
+
+                    // Record update time
+                    const now = new Date();
+                    lastWeatherUpdate.date = now.toDateString();
+                    lastWeatherUpdate.hour = now.getHours();
+                }
+            } catch (error) {
+                console.error('Failed to update weather:', error);
+            }
+        }
+
+        // Check if weather should be updated (at 7:00 and 18:00)
+        function checkWeatherUpdate() {
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentDate = now.toDateString();
+
+            // Update at 7:00 and 18:00
+            if ((currentHour === 7 || currentHour === 18)) {
+                // Prevent duplicate updates within the same hour
+                if (lastWeatherUpdate.date !== currentDate || lastWeatherUpdate.hour !== currentHour) {
+                    console.log(`Scheduled weather update triggered at ${currentHour}:00`);
+                    updateWeather();
+                }
+            }
+        }
+
+        // Start weather update checker (runs every minute)
+        setInterval(checkWeatherUpdate, 60000); // Check every 60 seconds
 
 
         // --- 2. Clock Logic + Time of Day System ---
@@ -2490,9 +2551,9 @@
                     this.imageType = 'main';
                 }
 
-                // 配置：画面全体に広げるが、上部に集める
-                this.x = Math.random() * (canvas.width + 400) - 200;
-                this.y = Math.random() * (canvas.height * 0.5);
+                // 配置：画面全体に広く分散（左端から右端まで）
+                this.x = Math.random() * (canvas.width * 2.5) - (canvas.width * 0.5);
+                this.y = Math.random() * (canvas.height * 0.6);
 
                 // パララックス速度（1.6-1.8倍の緩やかな比率）
                 if (layer === 0) {
@@ -2507,24 +2568,34 @@
                     this.speed = 0.40; // 1.82倍（基準の8倍）
                 }
 
-                // Layer 2用：2枚目の速度（約7%遅く）
-                // 30秒で1周する場合、32秒で1周する感覚
-                if (layer === 2) {
-                    this.speed2 = this.speed * 0.93; // 約7%遅い
-                    this.x2 = this.x - 20; // 初期位置を少しずらす
+                // サイズ：遠景は大きく、近景は小さく（遠近感）- バリエーション拡大
+                if (layer === 0) {
+                    this.scale = 1.4 + Math.random() * 0.8; // 1.4-2.2（より広範囲に）
+                } else if (layer === 4) {
+                    this.scale = 0.5 + Math.random() * 0.5; // 0.5-1.0（より広範囲に）
+                } else {
+                    this.scale = 0.7 + Math.random() * 0.6; // 0.7-1.3（より広範囲に）
                 }
 
-                // サイズ：遠景は大きく、近景は小さく（遠近感）
-                if (layer === 0) {
-                    this.scale = 1.5 + Math.random() * 0.5; // 1.5-2.0
-                } else if (layer === 4) {
-                    this.scale = 0.6 + Math.random() * 0.3; // 0.6-0.9
-                } else {
-                    this.scale = 0.8 + Math.random() * 0.4; // 0.8-1.2
+                // ランダムな回転角度（-12度〜+12度）
+                this.rotation = (Math.random() - 0.5) * 24 * (Math.PI / 180); // ラジアンに変換
+
+                // Layer 2用：2枚目の設定（速度は同じ、位置を垂直方向にずらす）
+                // ※this.scaleと回転が設定された後に実行する必要がある
+                if (layer === 2) {
+                    this.speed2 = this.speed; // 速度は統一してゴースト効果を排除
+                    this.x2 = this.x - 20; // 初期位置を少しずらす
+                    this.y2 = this.y + 40; // 垂直方向に40pxずらして別の雲として認識させる
+                    this.scale2 = this.scale * (1.1 + Math.random() * 0.3); // 1.1-1.4倍のランダムなスケール
+                    this.rotation2 = (Math.random() - 0.5) * 24 * (Math.PI / 180); // 2枚目も独立した回転角度
                 }
 
                 // ミラーリング（継ぎ目をなくす）
                 this.mirrored = Math.random() > 0.5;
+
+                // オフスクリーンキャンバスを作成（パフォーマンス最適化）
+                this.offscreenCanvas = document.createElement('canvas');
+                this.offscreenCtx = this.offscreenCanvas.getContext('2d');
 
                 // 見た目の設定
                 this.setWeatherAppearance(weatherCondition, layer);
@@ -2538,7 +2609,7 @@
                     // === 遠くの雲 (Deep) ===
                     // 背景に溶け込むテクスチャのような役割
                     // 画像素材自体を深い紺色（#1A1C2C）にする想定
-                    this.baseOpacity = 0.15; // 10-20%
+                    this.baseOpacity = 0.06; // 極めて薄い光の反射として表現
                     this.brightness = 0.25; // 非常に暗く（背景の黒に近い）
                     this.contrast = 0.7; // 低コントラスト（カラーバンディング防止）
                     this.saturation = 0.6; // 彩度を下げて背景に溶け込ませる
@@ -2611,13 +2682,14 @@
                     // 2枚目のループ処理
                     if (this.x2 > canvas.width + 400) {
                         this.x2 = -400;
+                        this.y2 = Math.random() * (canvas.height * 0.6) + 40; // y2もリセット
                     }
                 }
 
                 // 画面右端から出たら左端へ戻す（シームレスループ）
                 if (this.x > canvas.width + 400) {
                     this.x = -400;
-                    this.y = Math.random() * (canvas.height * 0.5);
+                    this.y = Math.random() * (canvas.height * 0.6);
                     // ランダムにミラーリングを変更
                     this.mirrored = Math.random() > 0.5;
                 }
@@ -2638,7 +2710,7 @@
                 // ブレンドモード決定
                 let blendMode = 'screen';
                 if (this.layer === 0) {
-                    blendMode = 'multiply';
+                    blendMode = 'screen'; // 遠景も光の反射として表現
                 } else if (this.layer === 4) {
                     blendMode = 'soft-light';
                 }
@@ -2655,14 +2727,14 @@
                 if (this.layer === 2 && this.x2 !== undefined) {
                     // 1枚目
                     this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
-                        this.baseOpacity * 0.6, blendMode, filterStr);
+                        this.baseOpacity * 0.6, blendMode, filterStr, this.rotation);
 
                     // === 干渉緩和：半透明グラデーション層（クッション） ===
                     ctx.save();
                     ctx.globalAlpha = this.baseOpacity * 0.15;
                     ctx.globalCompositeOperation = 'screen';
                     ctx.filter = 'blur(8px)'; // 強めのぼかし
-                    ctx.translate((this.x + this.x2) / 2, this.y); // 中間位置
+                    ctx.translate((this.x + this.x2) / 2, (this.y + this.y2) / 2); // 中間位置（x,y両方）
 
                     // ぼかしたグラデーション塗りつぶし
                     const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, imgWidth * 0.7);
@@ -2673,25 +2745,33 @@
                     ctx.fillRect(-imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight);
                     ctx.restore();
 
-                    // 2枚目（速度差で位置が異なる）
-                    this.drawCloudWithEffects(ctx, this.x2, this.y, imgWidth, imgHeight,
-                        this.baseOpacity * 0.5, blendMode, filterStr);
+                    // 2枚目（位置とスケールと回転が異なる）
+                    const imgWidth2 = this.image.width * this.scale2 * scaleAdjustment;
+                    const imgHeight2 = this.image.height * this.scale2 * scaleAdjustment;
+                    this.drawCloudWithEffects(ctx, this.x2, this.y2, imgWidth2, imgHeight2,
+                        this.baseOpacity * 0.5, blendMode, filterStr, this.rotation2);
                 } else {
                     // === 通常の描画 ===
                     this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
-                        this.baseOpacity, blendMode, filterStr);
+                        this.baseOpacity, blendMode, filterStr, this.rotation);
                 }
             }
 
             // 雲を各種エフェクト付きで描画するヘルパーメソッド
-            drawCloudWithEffects(ctx, x, y, imgWidth, imgHeight, opacity, blendMode, filterStr) {
+            drawCloudWithEffects(ctx, x, y, imgWidth, imgHeight, opacity, blendMode, filterStr, rotation) {
                 ctx.save();
 
-                // オフスクリーンキャンバスを使用してマスクと合成
-                const offscreen = document.createElement('canvas');
+                // オフスクリーンキャンバスを再利用（パフォーマンス改善）
+                const offscreen = this.offscreenCanvas;
+                const offCtx = this.offscreenCtx;
+
+                // 必要なサイズに調整
                 offscreen.width = imgWidth * 2; // シームレス用に2倍
                 offscreen.height = imgHeight;
-                const offCtx = offscreen.getContext('2d');
+
+                // キャンバスの状態をリセット（念のため）
+                offCtx.globalCompositeOperation = 'source-over';
+                offCtx.globalAlpha = 1.0;
 
                 // === 1. 雲画像を描画 ===
                 offCtx.filter = filterStr;
@@ -2701,29 +2781,58 @@
                 // === 2. 垂直方向の色調グラデーション（厚み表現） ===
                 offCtx.globalCompositeOperation = 'overlay';
                 const verticalGradient = offCtx.createLinearGradient(0, 0, 0, imgHeight);
-                verticalGradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // 上部：明るく
+                verticalGradient.addColorStop(0, 'rgba(200, 220, 255, 0.2)'); // 上部：ごく薄い青（夜空の環境光）
                 verticalGradient.addColorStop(0.5, 'rgba(128, 128, 128, 0)'); // 中央：変化なし
-                verticalGradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)'); // 下部：暗く
+                verticalGradient.addColorStop(1, 'rgba(15, 20, 40, 0.4)'); // 下部：深い紺（夜空に馴染む）
                 offCtx.fillStyle = verticalGradient;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
                 // === 3. ソフトエッジ・マスク（放射状透過） ===
+                // 雲の外側を緩やかに透過させて背景に自然に馴染ませる
                 offCtx.globalCompositeOperation = 'destination-in';
                 const radialMask = offCtx.createRadialGradient(
                     imgWidth, imgHeight / 2, 0,
-                    imgWidth, imgHeight / 2, imgWidth * 0.8
+                    imgWidth, imgHeight / 2, imgWidth * 2.5  // 半径を少し小さく
                 );
-                radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)'); // 中心：完全不透明
-                radialMask.addColorStop(0.6, 'rgba(0, 0, 0, 0.9)'); // 60%地点：ほぼ不透明
-                radialMask.addColorStop(0.85, 'rgba(0, 0, 0, 0.3)'); // 85%地点：薄く
-                radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)'); // 外側：完全透明
+                radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)');      // 中心：完全不透明
+                radialMask.addColorStop(0.25, 'rgba(0, 0, 0, 1)');   // 25%地点まで完全不透明
+                radialMask.addColorStop(0.5, 'rgba(0, 0, 0, 0.95)'); // 50%地点：わずかに透過
+                radialMask.addColorStop(0.7, 'rgba(0, 0, 0, 0.6)');  // 70%地点：やや透過
+                radialMask.addColorStop(0.85, 'rgba(0, 0, 0, 0.2)'); // 85%地点：かなり透明
+                radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)');      // 外側：完全透明
                 offCtx.fillStyle = radialMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
-                // === 4. メインキャンバスに合成 ===
+                // === 4. 矩形エッジの強制透過（画像の外枠を完全に消す） ===
+                // 上下左右の端を強制的に透明にして矩形の境界を消す
+                offCtx.globalCompositeOperation = 'destination-in';
+
+                // 水平方向のマスク（左右の端を透明に）- 少し弱める
+                const horizontalMask = offCtx.createLinearGradient(0, 0, imgWidth * 2, 0);
+                horizontalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');      // 左端：完全透明
+                horizontalMask.addColorStop(0.28, 'rgba(0, 0, 0, 1)');   // 28%地点：不透明
+                horizontalMask.addColorStop(0.72, 'rgba(0, 0, 0, 1)');   // 72%地点：不透明
+                horizontalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');      // 右端：完全透明
+                offCtx.fillStyle = horizontalMask;
+                offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
+
+                // 垂直方向のマスク（上下の端を透明に）- 少し弱める
+                const verticalMask = offCtx.createLinearGradient(0, 0, 0, imgHeight);
+                verticalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');        // 上端：完全透明
+                verticalMask.addColorStop(0.32, 'rgba(0, 0, 0, 1)');     // 32%地点：不透明
+                verticalMask.addColorStop(0.68, 'rgba(0, 0, 0, 1)');     // 68%地点：不透明
+                verticalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');        // 下端：完全透明
+                offCtx.fillStyle = verticalMask;
+                offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
+
+                // === 5. メインキャンバスに合成 ===
                 ctx.globalAlpha = opacity;
                 ctx.globalCompositeOperation = blendMode;
                 ctx.translate(x, y);
+
+                // ランダムな回転を適用
+                ctx.rotate(rotation);
+
                 if (this.mirrored) {
                     ctx.scale(-1, 1);
                 }
@@ -2766,13 +2875,13 @@
                     // 0% = minimal clouds, 100% = maximum clouds
                     const totalClouds = Math.floor(cloudCover * 0.5); // 0-50 clouds max
 
-                    // Layer distribution: 5層に分散（奥から手前へ）
+                    // Layer distribution: 5層に均等分散（各20%）
                     cloudCount = [
-                        Math.max(1, Math.floor(totalClouds * 0.15)), // Layer 0 (最奥)
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 1
-                        Math.max(2, Math.floor(totalClouds * 0.30)), // Layer 2 (中央・最多)
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 3
-                        Math.max(1, Math.floor(totalClouds * 0.15))  // Layer 4 (最前)
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 0 (最奥) - 20%
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 1 - 20%
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 2 (中央) - 20%
+                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 3 - 20%
+                        Math.max(1, Math.floor(totalClouds * 0.20))  // Layer 4 (最前) - 20%
                     ];
                 }
 
