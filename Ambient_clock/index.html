@@ -3296,9 +3296,25 @@
         let lastShootingStarTime = Date.now();
         let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
 
-        // Animation loop
+        // Animation loop - 24fps target (41.67ms per frame)
         let frameCount = 0;
-        function animateParticles() {
+        let lastFrameTime = performance.now();
+        const targetFrameTime = 1000 / 24; // 24fps = 41.67ms per frame
+
+        function animateParticles(currentTime) {
+            requestAnimationFrame(animateParticles);
+
+            // Calculate time since last frame
+            const deltaTime = currentTime - lastFrameTime;
+
+            // Skip frame if not enough time has passed (throttle to 24fps)
+            if (deltaTime < targetFrameTime) {
+                return;
+            }
+
+            // Update lastFrameTime (accounting for any extra time)
+            lastFrameTime = currentTime - (deltaTime % targetFrameTime);
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             cloudCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
 
@@ -3350,10 +3366,10 @@
 
             // Draw star labels if enabled
             drawStarLabels();
-
-            requestAnimationFrame(animateParticles);
         }
-        animateParticles();
+
+        // Start the animation loop
+        animateParticles(performance.now());
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
