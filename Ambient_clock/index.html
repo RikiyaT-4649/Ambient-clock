@@ -1096,7 +1096,7 @@
 
             let jd = decimalDay + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
 
-            return jd - 0.5;
+            return jd+0.5;
         }
 
         // Calculate moon phase (0.0 = New Moon, 0.5 = Full Moon, 1.0 = New Moon)
