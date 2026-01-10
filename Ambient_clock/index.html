@@ -95,6 +95,7 @@
             background-color: #000;
             font-family: 'Inter', sans-serif;
             color: white;
+            -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
@@ -463,6 +464,60 @@
                 0 0 120px rgba(255, 248, 220, 0.4);
         }
 
+        /* 光条（Sunbeams / Lens Flare） - 晴天時のみ表示 */
+        .sunbeams-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            animation: rotateSunbeams 180s linear infinite;
+        }
+
+        .sunbeam {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 350px;
+            height: 4px;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.12) 40%,
+                rgba(255, 255, 255, 0.25) 50%,
+                rgba(255, 255, 255, 0.12) 60%,
+                transparent 100%);
+            pointer-events: none;
+            opacity: 0.5;
+            transform-origin: center;
+        }
+
+        @keyframes rotateSunbeams {
+            0% {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+            100% {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        /* 太陽の日暈（ハロー）- 薄い光の輪 */
+        /* 朝〜午前・午後の時間帯のみ表示 */
+        #celestial-body.sun.show-halo::after {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            filter: blur(20px);
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
         #celestial-body.moon {
             background: radial-gradient(circle, #ffffff 0%, #e8eaf6 50%, #c5cae9 100%);
             box-shadow:
@@ -584,6 +639,7 @@
             bottom: var(--shortcut-hint-bottom);
             right: var(--shortcut-hint-right);
             background: rgba(0, 0, 0, 0.5);
+            -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
             padding: var(--shortcut-hint-padding);
             border-radius: var(--shortcut-hint-border-radius);
@@ -868,21 +924,10 @@
 
     <div id="controls-wrapper">
         <div id="controls">
-            <!-- AUDIO CONTROLS - Temporarily disabled for release -->
-            <!--
-            <div class="control-group">
-                <div class="icon" id="btn-bonfire" title="Bonfire">🔥</div>
-                <input type="range" id="vol-bonfire" min="0" max="1" step="0.01" value="0.5">
-            </div>
-
-            <div class="control-group">
-                <div class="icon" id="btn-rain" title="Rain">🌧️</div>
-                <input type="range" id="vol-rain" min="0" max="1" step="0.01" value="0.5">
-            </div>
+            <!-- AUDIO CONTROLS -->
+            <div class="icon" id="btn-sound" title="Rain Sound">🔊</div>
 
             <div class="divider"></div>
-            -->
-            <!-- END AUDIO CONTROLS -->
 
             <div class="control-group">
                 <div class="icon" style="cursor: default; opacity: 0.8;">💡</div>
@@ -916,7 +961,7 @@
         </div>
         <div class="tool-section">
             <div class="tool-title">Alarm</div>
-            <input type="time" class="alarm-input" id="alarm-time" value="07:00">
+            <input type="time" class="alarm-input" id="alarm-time" value="07:00" aria-label="Set alarm time" title="Set alarm time">
             <div class="tool-buttons">
                 <button class="tool-btn" id="alarm-toggle">ON</button>
             </div>
@@ -928,11 +973,8 @@
         T: Tools | Space: Toggle UI | F: Fullscreen
     </div>
 
-    <!-- AUDIO ELEMENTS - Temporarily disabled for release -->
-    <!--
-    <audio id="audio-bonfire" loop src="bonfire.mp3"></audio>
+    <!-- AUDIO ELEMENTS -->
     <audio id="audio-rain" loop src="rain.mp3"></audio>
-    -->
 
     <script>
         // --- 1. Weather System ---
@@ -1430,10 +1472,10 @@
                     break;
 
                 case 'Clouds':
-                    // Desaturate and add gray overlay
-                    adjusted1 = adjustSaturation(rgb1, 0.7);
-                    adjusted2 = adjustSaturation(rgb2, 0.7);
-                    adjusted3 = adjustSaturation(rgb3, 0.7);
+                    // 演出3: 天候による彩度の抑制 - Reduce saturation by 20% for pastel effect
+                    adjusted1 = adjustSaturation(rgb1, 0.8);
+                    adjusted2 = adjustSaturation(rgb2, 0.8);
+                    adjusted3 = adjustSaturation(rgb3, 0.8);
                     break;
 
                 case 'Rain':
@@ -1494,40 +1536,42 @@
                 const sunriseMinutes = sunriseTime.getHours() * 60 + sunriseTime.getMinutes();
                 const sunsetMinutes = sunsetTime.getHours() * 60 + sunsetTime.getMinutes();
 
-                // 動的な時間帯の定義（日の出・日の入り時刻を基準）- 美しく感動的な自然の色
+                // 動的な時間帯の定義（日の出・日の入り時刻を基準）- ドラマチックな色彩設計
                 timeGradients = [
-                    { time: 0, colors: ['#000000', '#000000', '#000000'] },      // 深夜 - 真っ黒
-                    { time: Math.max(0, sunriseMinutes - 120), colors: ['#000000', '#0a0a0f', '#151520'] }, // 明け方前 - 黒から少しずつ
-                    { time: Math.max(0, sunriseMinutes - 60), colors: ['#3d3f6b', '#614b79', '#e96443'] },  // 夜明け - 紫からオレンジへ
-                    { time: sunriseMinutes, colors: ['#ff6b35', '#f7931e', '#fdc830'] },                    // 日の出 - 鮮やかなオレンジと金色
-                    { time: sunriseMinutes + 60, colors: ['#fdc830', '#f37335', '#56CCF2'] },              // 朝焼け - 金色から青へ
-                    { time: sunriseMinutes + 120, colors: ['#56CCF2', '#87CEEB', '#a8e0f7'] },             // 朝 - 爽やかな青空
-                    { time: Math.floor((sunriseMinutes + sunsetMinutes) / 2), colors: ['#3b8fd9', '#56CCF2', '#e3f2fd'] }, // 正午 - 澄んだ青空
-                    { time: sunsetMinutes - 120, colors: ['#56CCF2', '#87CEEB', '#fef5e7'] },              // 午後 - 青から柔らかな黄色へ
-                    { time: sunsetMinutes - 60, colors: ['#ffd166', '#ffa751', '#f77f00'] },               // 夕方 - 黄金色の夕暮れ
-                    { time: sunsetMinutes - 30, colors: ['#ff6f61', '#e63946', '#d62828'] },               // 夕焼け - 情熱的な赤
-                    { time: sunsetMinutes, colors: ['#d62828', '#a04668', '#5e4b8a'] },                    // 日没 - 赤から紫へ
-                    { time: sunsetMinutes + 60, colors: ['#5e4b8a', '#3d3f6b', '#2b2d5c'] },               // 宵 - 紫の黄昏
-                    { time: sunsetMinutes + 120, colors: ['#1a1a20', '#0a0a0f', '#000000'] },              // 夜 - 真っ黒へ
-                    { time: 24 * 60, colors: ['#000000', '#000000', '#000000'] },                          // 深夜（つなぎ）
+                    { time: 0, colors: ['#000000', '#0a0a1a', '#000000'] },      // 深夜 - 真っ黒
+                    { time: Math.max(0, sunriseMinutes - 90), colors: ['#0a0a1a', '#1e1e3f', '#1a1a2e'] }, // 明け方前
+                    { time: Math.max(0, sunriseMinutes - 30), colors: ['#1e3a8a', '#e91e63', '#ff8c00'] }, // 黎明 - 深い群青→マゼンタ→燃えるアンバー
+                    { time: sunriseMinutes, colors: ['#1e40af', '#ff006e', '#ffa500'] },                   // 日の出 - 宇宙と火の境界線
+                    { time: sunriseMinutes + 20, colors: ['#3b82f6', '#60a5fa', '#bfdbfe'] },              // 朝焼け - 青へ移行
+                    { time: sunriseMinutes + 120, colors: ['#2563eb', '#38bdf8', '#e0f2fe'] },             // 朝 - 正午へ向かう
+                    { time: Math.floor((sunriseMinutes + sunsetMinutes) / 2), colors: ['#1d4ed8', '#0ea5e9', '#f0f9ff'] }, // 正午 - ロイヤルブルー→スカイブルー→白いシアン
+                    { time: sunsetMinutes - 120, colors: ['#1e40af', '#38bdf8', '#f0f9ff'] },              // 午後早め
+                    { time: sunsetMinutes - 60, colors: ['#64748b', '#fbbf24', '#fed7aa'] },               // 黄昏 - スレートブルー→ハニーゴールド→ペールピーチ
+                    { time: sunsetMinutes - 30, colors: ['#475569', '#f59e0b', '#fecaca'] },               // 夕方 - 黄金色のノスタルジー
+                    { time: sunsetMinutes, colors: ['#312e81', '#b91c1c', '#7c3aed'] },                    // 残照前 - インディゴ→ルビーレッド→紫
+                    { time: sunsetMinutes + 30, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] },               // 日没 - 燃え尽きる情熱
+                    { time: sunsetMinutes + 60, colors: ['#312e81', '#581c87', '#3b0764'] },               // 宵 - 深い紫の世界
+                    { time: sunsetMinutes + 120, colors: ['#1a1a2e', '#0a0a1a', '#000000'] },              // 夜 - 真っ黒へ
+                    { time: 24 * 60, colors: ['#000000', '#0a0a1a', '#000000'] },                          // 深夜（つなぎ）
                 ];
             } else {
-                // フォールバック: 固定的な時間帯（データがない場合）- 美しく感動的な自然の色
+                // フォールバック: 固定的な時間帯（データがない場合）- ドラマチックな色彩設計
                 timeGradients = [
-                    { time: 0, colors: ['#0a0e27', '#1a1f3a', '#2d3561'] },      // 深夜 - 深い藍色の夜空
-                    { time: 4 * 60, colors: ['#1a1f3a', '#2b2d5c', '#3d3f6b'] }, // 明け方前 - 紫がかった夜
-                    { time: 5 * 60, colors: ['#3d3f6b', '#614b79', '#e96443'] }, // 夜明け - 紫からオレンジへ
-                    { time: 6 * 60, colors: ['#ff6b35', '#f7931e', '#fdc830'] }, // 日の出 - 鮮やかなオレンジと金色
-                    { time: 8 * 60, colors: ['#fdc830', '#f37335', '#56CCF2'] }, // 朝焼け - 金色から青へ
-                    { time: 10 * 60, colors: ['#56CCF2', '#87CEEB', '#a8e0f7'] },// 朝 - 爽やかな青空
-                    { time: 12 * 60, colors: ['#3b8fd9', '#56CCF2', '#e3f2fd'] },// 正午 - 澄んだ青空
-                    { time: 14 * 60, colors: ['#56CCF2', '#87CEEB', '#fef5e7'] },// 午後 - 青から柔らかな黄色へ
-                    { time: 16 * 60, colors: ['#ffd166', '#ffa751', '#f77f00'] },// 夕方 - 黄金色の夕暮れ
-                    { time: 17 * 60 + 30, colors: ['#ff6f61', '#e63946', '#d62828'] }, // 夕焼け - 情熱的な赤
-                    { time: 18 * 60 + 30, colors: ['#d62828', '#a04668', '#5e4b8a'] }, // 日没 - 赤から紫へ
-                    { time: 20 * 60, colors: ['#5e4b8a', '#3d3f6b', '#2b2d5c'] }, // 宵 - 紫の黄昏
-                    { time: 22 * 60, colors: ['#2b2d5c', '#1a1f3a', '#0a0e27'] }, // 夜 - 深い藍色へ
-                    { time: 24 * 60, colors: ['#0a0e27', '#1a1f3a', '#2d3561'] }, // つなぎ - 深い藍色の夜空
+                    { time: 0, colors: ['#000000', '#0a0a1a', '#000000'] },          // 深夜 - 真っ黒
+                    { time: 4 * 60, colors: ['#0a0a1a', '#1e1e3f', '#1a1a2e'] },     // 明け方前
+                    { time: 5 * 60, colors: ['#1e3a8a', '#e91e63', '#ff8c00'] },    // 黎明 - 深い群青→マゼンタ→燃えるアンバー
+                    { time: 6 * 60, colors: ['#1e40af', '#ff006e', '#ffa500'] },     // 日の出 - 宇宙と火の境界線
+                    { time: 6 * 60 + 20, colors: ['#3b82f6', '#60a5fa', '#bfdbfe'] },     // 朝焼け - 青へ移行
+                    { time: 9 * 60, colors: ['#2563eb', '#38bdf8', '#e0f2fe'] },     // 朝 - 正午へ向かう
+                    { time: 12 * 60, colors: ['#1d4ed8', '#0ea5e9', '#f0f9ff'] },    // 正午 - ロイヤルブルー→スカイブルー→白いシアン
+                    { time: 16 * 60 + 30, colors: ['#1e40af', '#38bdf8', '#f0f9ff'] }, // 午後早め
+                    { time: 17 * 60 + 30, colors: ['#64748b', '#fbbf24', '#fed7aa'] },    // 黄昏 - スレートブルー→ハニーゴールド→ペールピーチ
+                    { time: 18 * 60, colors: ['#475569', '#f59e0b', '#fecaca'] },    // 夕方 - 黄金色のノスタルジー
+                    { time: 18 * 60 + 30, colors: ['#312e81', '#b91c1c', '#7c3aed'] },    // 残照前 - インディゴ→ルビーレッド→紫
+                    { time: 19 * 60, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] }, // 日没 - 燃え尽きる情熱
+                    { time: 20 * 60, colors: ['#312e81', '#581c87', '#3b0764'] },    // 宵 - 深い紫の世界
+                    { time: 22 * 60, colors: ['#1a1a2e', '#0a0a1a', '#000000'] },    // 夜 - 真っ黒へ
+                    { time: 24 * 60, colors: ['#000000', '#0a0a1a', '#000000'] },    // つなぎ - 真っ黒
                 ];
             }
 
@@ -1552,12 +1596,29 @@
             let color2 = interpolateColor(beforeGrad.colors[1], afterGrad.colors[1], progress);
             let color3 = interpolateColor(beforeGrad.colors[2], afterGrad.colors[2], progress);
 
+            // 演出2: 太陽・月との色連動 - Celestial body color linkage
+            // Check if sun/moon is passing through the middle gradient layer (around 70% height)
+            const celestialBody = document.getElementById('celestial-body');
+            if (celestialBody && celestialBody.style.opacity === '1') {
+                const celestialTop = parseFloat(celestialBody.style.top);
+                const screenHeight = window.innerHeight;
+                const celestialRelativePos = celestialTop / screenHeight;
+
+                // If celestial body is in the middle gradient zone (60%-80% from top), boost saturation
+                if (celestialRelativePos >= 0.6 && celestialRelativePos <= 0.8) {
+                    const rgb2 = parseRgb(color2);
+                    const boostedRgb2 = adjustSaturation(rgb2, 1.1); // +10% saturation
+                    color2 = `rgb(${Math.round(boostedRgb2[0])}, ${Math.round(boostedRgb2[1])}, ${Math.round(boostedRgb2[2])})`;
+                }
+            }
+
             // Apply weather color blending if available
             if (weatherState.condition) {
                 [color1, color2, color3] = blendWeatherColors(color1, color2, color3, weatherState.condition);
             }
 
-            const gradient = `linear-gradient(to bottom, ${color1} 0%, ${color2} 50%, ${color3} 100%)`;
+            // 演出1: グラデーションの比率を崩す - Gradient ratio adjustment (70% instead of 50%)
+            const gradient = `linear-gradient(to bottom, ${color1} 0%, ${color2} 70%, ${color3} 100%)`;
             bgContainer.style.background = gradient;
         }
 
@@ -1616,13 +1677,24 @@
             const celestialBody = document.getElementById('celestial-body');
             const solarProgress = getSolarProgress();
 
+            // 日没30分前のsolarProgressを計算
+            let sunsetStartProgress = 0.9; // デフォルト値
+            const { sunrise, sunset } = weatherState;
+            if (sunrise && sunset) {
+                const sunriseTime = new Date(sunrise).getTime();
+                const sunsetTime = new Date(sunset).getTime();
+                const daylightDuration = sunsetTime - sunriseTime; // 日照時間（ミリ秒）
+                const thirtyMinutes = 30 * 60 * 1000; // 30分（ミリ秒）
+                sunsetStartProgress = 1 - (thirtyMinutes / daylightDuration); // 日没30分前
+            }
+
             // Common arc parameters - higher orbit to avoid clock text
             const centerX = window.innerWidth / 2;
             const radiusX = window.innerWidth * 0.4;
             const radiusY = window.innerHeight * 0.5; // Large arc for high peak (30% from top at noon)
 
-            if (solarProgress >= 0 && solarProgress <= 1) {
-                // Daytime: Show sun
+            if (solarProgress >= 0 && solarProgress < 0.95) {
+                // Daytime: Show sun (半分沈んだら非表示)
                 celestialBody.className = 'sun';
 
                 // Sun movement: sunrise (left) → noon (top ~30% from top) → sunset (right)
@@ -1633,9 +1705,102 @@
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
                 celestialBody.style.opacity = '1';
-                celestialBody.innerHTML = ''; // 月の描画を消す
-                celestialBody.style.background = ''; // CSS定義の太陽の色に戻す
-                celestialBody.style.boxShadow = '';  // CSS定義の影に戻す
+
+                // 光条（Sunbeams）のHTML要素を生成 - 8本の光線
+                // 条件: 晴天時 かつ 朝〜午前・午後（日の出、黄昏、残照の時間帯を除外）
+                let sunbeamsHTML = '';
+                const showSunbeams = weatherState.condition === 'Clear' &&
+                                     solarProgress > 0.2 && solarProgress < 0.7;
+
+                if (showSunbeams) {
+                    sunbeamsHTML = '<div class="sunbeams-container">';
+                    for (let i = 0; i < 8; i++) {
+                        const rotation = i * 22.5; // 22.5度ずつ回転（8本で180度カバー）
+                        sunbeamsHTML += `<div class="sunbeam" style="transform: translate(-50%, -50%) rotate(${rotation}deg);"></div>`;
+                    }
+                    sunbeamsHTML += '</div>';
+                }
+                celestialBody.innerHTML = sunbeamsHTML;
+
+                // 時間帯による太陽の性格変化
+                let sunSize, sunGradient, sunShadow, sunFilter, sunClipPath;
+                const baseSize = 80; // デフォルトサイズ
+
+                if (solarProgress <= 0.2) {
+                    // ① 黎明（日の出）：希望の火種 - 大きく、ごく薄いピンク、ぼかし強め
+                    sunSize = baseSize * 1.1;
+                    sunGradient = 'radial-gradient(circle, #ffffff 0%, #ffffff 40%, #fffaf5 70%, #fff0e8 100%)';
+                    sunShadow = `
+                        0 0 80px rgba(255, 255, 255, 0.9),
+                        0 0 160px rgba(255, 245, 240, 0.6),
+                        0 0 350px rgba(255, 230, 220, 0.3)
+                    `;
+                    sunFilter = 'blur(2px)'; // ぼかし強め
+                    sunClipPath = 'none';
+
+                } else if (solarProgress >= 0.4 && solarProgress <= 0.6) {
+                    // ② 正午（昼間）：天頂の王者 - 小さく、純白で眩しい、鋭い影
+                    sunSize = baseSize * 0.8;
+                    sunGradient = 'radial-gradient(circle, #ffffff 0%, #ffffff 60%, #fffdf8 80%, #fffbf0 100%)';
+                    sunShadow = `
+                        0 0 60px rgba(255, 255, 255, 0.9),
+                        0 0 120px rgba(255, 253, 240, 0.6),
+                        0 0 250px rgba(255, 250, 240, 0.3)
+                    `;
+                    sunFilter = 'blur(0px)'; // 鋭く
+                    sunClipPath = 'none';
+
+                } else if (solarProgress >= 0.7 && solarProgress < sunsetStartProgress) {
+                    // ③ 黄昏（夕方）：黄金の慈しみ - 大きく、ごく薄いゴールド、光の広がりなし
+                    sunSize = baseSize * 1.2;
+                    sunGradient = 'radial-gradient(circle, #ffffff 0%, #ffffff 40%, #fffdf0 70%, #fff5e0 100%)';
+                    sunShadow = 'none'; // 光の広がりを削除
+                    sunFilter = 'blur(1px)';
+                    sunClipPath = 'none';
+
+                } else if (solarProgress >= sunsetStartProgress) {
+                    // ④ 残照（日没直前）：情熱の終焉 - ごく薄い赤、地平線に沈む、光の広がりなし
+                    sunSize = baseSize * 1.15;
+                    sunGradient = 'radial-gradient(circle, #ffffff 0%, #fff5f5 40%, #ffe8e8 70%, #ffd0d0 100%)';
+                    sunShadow = 'none'; // 光の広がりを削除
+                    sunFilter = 'blur(3px)';
+                    // 地平線に沈むように下から直線的に消える（円形を保持）
+                    // 日没30分前から0.95までの範囲で半分沈むまで表示
+                    const sunsetRange = 0.95 - sunsetStartProgress; // 沈む期間
+                    const fadeProgress = (solarProgress - sunsetStartProgress) / sunsetRange; // 0.0 -> 1.0
+                    sunClipPath = `inset(0 0 ${fadeProgress * 50}% 0 round 50%)`;
+
+                } else {
+                    // 中間の時間帯（朝〜午前、午後）は通常の太陽 - 白く眩しく
+                    sunSize = baseSize;
+                    sunGradient = 'radial-gradient(circle, #ffffff 0%, #ffffff 60%, #fffdf8 80%, #fffbf0 100%)';
+                    sunShadow = `
+                        0 0 60px rgba(255, 255, 255, 0.9),
+                        0 0 120px rgba(255, 253, 240, 0.6),
+                        0 0 250px rgba(255, 250, 240, 0.3)
+                    `;
+                    sunFilter = 'blur(0px)';
+                    sunClipPath = 'none';
+                }
+
+                // スタイルを適用
+                celestialBody.style.width = sunSize + 'px';
+                celestialBody.style.height = sunSize + 'px';
+                celestialBody.style.background = sunGradient;
+                celestialBody.style.boxShadow = sunShadow;
+                celestialBody.style.filter = sunFilter;
+                celestialBody.style.clipPath = sunClipPath;
+
+                // 位置の微調整（サイズ変更に対応）
+                celestialBody.style.left = (x - (sunSize - 80) / 2) + 'px';
+                celestialBody.style.top = (y - (sunSize - 80) / 2) + 'px';
+
+                // 日暈（ハロー）の表示制御 - 日中の時間帯（黎明を除く）
+                if (solarProgress >= 0.1 && solarProgress <= 0.9) {
+                    celestialBody.classList.add('show-halo');
+                } else {
+                    celestialBody.classList.remove('show-halo');
+                }
             } else {
                 // Night time: Show moon
                 celestialBody.className = 'moon';
@@ -2537,13 +2702,13 @@
 
         class CloudParticle {
             constructor(layer, weatherCondition, forceType = null) {
-                this.layer = layer; // 0=遠景, 1-3=中景, 4=近景
+                this.layer = layer; // 0=遠景, 1=中景, 2=近景（3層構造）
 
                 // レイヤーごとに画像を選択
                 if (layer === 0) {
                     this.image = cloudImages.far;
                     this.imageType = 'far';
-                } else if (layer === 4) {
+                } else if (layer === 2) {
                     this.image = cloudImages.near;
                     this.imageType = 'near';
                 } else {
@@ -2551,27 +2716,23 @@
                     this.imageType = 'main';
                 }
 
-                // 配置：画面全体に広く分散（左端から右端まで）
+                // 配置：画面全体に広く分散（左端から右端まで、上部から下部まで）
                 this.x = Math.random() * (canvas.width * 2.5) - (canvas.width * 0.5);
-                this.y = Math.random() * (canvas.height * 0.6);
+                this.y = Math.random() * (canvas.height * 0.7); // Y軸範囲を拡大
 
-                // パララックス速度（1.6-1.8倍の緩やかな比率）
+                // パララックス速度（3層構造）
                 if (layer === 0) {
-                    this.speed = 0.05; // 基準
+                    this.speed = 0.05; // 遠景 - 遅い
                 } else if (layer === 1) {
-                    this.speed = 0.08; // 1.6倍
+                    this.speed = 0.13; // 中景 - 中間（元のLayer 2の速度）
                 } else if (layer === 2) {
-                    this.speed = 0.13; // 1.625倍（基準の2.6倍）
-                } else if (layer === 3) {
-                    this.speed = 0.22; // 1.69倍（基準の4.4倍）
-                } else if (layer === 4) {
-                    this.speed = 0.40; // 1.82倍（基準の8倍）
+                    this.speed = 0.40; // 近景 - 速い
                 }
 
                 // サイズ：遠景は大きく、近景は小さく（遠近感）- バリエーション拡大
                 if (layer === 0) {
                     this.scale = 1.4 + Math.random() * 0.8; // 1.4-2.2（より広範囲に）
-                } else if (layer === 4) {
+                } else if (layer === 2) {
                     this.scale = 0.5 + Math.random() * 0.5; // 0.5-1.0（より広範囲に）
                 } else {
                     this.scale = 0.7 + Math.random() * 0.6; // 0.7-1.3（より広範囲に）
@@ -2579,16 +2740,6 @@
 
                 // ランダムな回転角度（-12度〜+12度）
                 this.rotation = (Math.random() - 0.5) * 24 * (Math.PI / 180); // ラジアンに変換
-
-                // Layer 2用：2枚目の設定（速度は同じ、位置を垂直方向にずらす）
-                // ※this.scaleと回転が設定された後に実行する必要がある
-                if (layer === 2) {
-                    this.speed2 = this.speed; // 速度は統一してゴースト効果を排除
-                    this.x2 = this.x - 20; // 初期位置を少しずらす
-                    this.y2 = this.y + 40; // 垂直方向に40pxずらして別の雲として認識させる
-                    this.scale2 = this.scale * (1.1 + Math.random() * 0.3); // 1.1-1.4倍のランダムなスケール
-                    this.rotation2 = (Math.random() - 0.5) * 24 * (Math.PI / 180); // 2枚目も独立した回転角度
-                }
 
                 // ミラーリング（継ぎ目をなくす）
                 this.mirrored = Math.random() > 0.5;
@@ -2602,20 +2753,20 @@
             }
 
             setWeatherAppearance(condition, layer) {
-                // 空気遠近法を適用したレイヤー別設定
+                // 空気遠近法を適用したレイヤー別設定（3層構造）
                 // パフォーマンス重視：hue-rotateは使用せず、brightness/contrast/saturationのみ
 
                 if (layer === 0) {
                     // === 遠くの雲 (Deep) ===
                     // 背景に溶け込むテクスチャのような役割
                     // 画像素材自体を深い紺色（#1A1C2C）にする想定
-                    this.baseOpacity = 0.06; // 極めて薄い光の反射として表現
+                    this.baseOpacity = 0.05; // 5%に下げて背景に完全に馴染ませる
                     this.brightness = 0.25; // 非常に暗く（背景の黒に近い）
                     this.contrast = 0.7; // 低コントラスト（カラーバンディング防止）
                     this.saturation = 0.6; // 彩度を下げて背景に溶け込ませる
                     this.blur = 0; // ぼかしなし（遠いが明確）
 
-                } else if (layer === 4) {
+                } else if (layer === 2) {
                     // === 近くの雲 (Near) ===
                     // カメラのすぐ前を通り過ぎる霧のような役割
                     // 画像素材自体を明るめの青灰色（#708090）にする想定
@@ -2626,20 +2777,14 @@
                     this.blur = 4; // 強いぼかし（ピンボケ効果）
 
                 } else {
-                    // === 中央の雲 (Middle) - Layer 1, 2, 3 ===
-                    // メインとなる雲、最もディテールを見せる
+                    // === 中央の雲 (Middle) - Layer 1 ===
+                    // メインとなる雲、最も重要な層
                     // 画像素材自体を暗い青灰色（#3D4663）にする想定
-                    this.baseOpacity = 0.50; // 40-60%（レイヤーで微調整）
-                    this.brightness = 0.45; // 中間の暗さ
+                    this.baseOpacity = 0.40; // 中景の主要レイヤー
+                    this.brightness = 0.42; // 中間の暗さ
                     this.contrast = 1.0; // 1.1から1.0に下げてカラーバンディング防止
                     this.saturation = 0.8;
                     this.blur = 0; // ぼかしなし（ディテール重視）
-
-                    // Layer 2（中央の最も重要な層）を少し濃く
-                    if (layer === 2) {
-                        this.baseOpacity = 0.60;
-                        this.brightness = 0.50;
-                    }
                 }
 
                 // 天気条件による調整
@@ -2675,21 +2820,10 @@
                 const windEffect = (weatherState.windSpeed || 0) * 0.05;
                 this.x += this.speed + windEffect;
 
-                // Layer 2の2枚目も更新
-                if (this.layer === 2 && this.x2 !== undefined) {
-                    this.x2 += this.speed2 + windEffect;
-
-                    // 2枚目のループ処理
-                    if (this.x2 > canvas.width + 400) {
-                        this.x2 = -400;
-                        this.y2 = Math.random() * (canvas.height * 0.6) + 40; // y2もリセット
-                    }
-                }
-
                 // 画面右端から出たら左端へ戻す（シームレスループ）
                 if (this.x > canvas.width + 400) {
                     this.x = -400;
-                    this.y = Math.random() * (canvas.height * 0.6);
+                    this.y = Math.random() * (canvas.height * 0.7);
                     // ランダムにミラーリングを変更
                     this.mirrored = Math.random() > 0.5;
                 }
@@ -2707,12 +2841,12 @@
                     filterStr += ` blur(${this.blur}px)`;
                 }
 
-                // ブレンドモード決定
+                // ブレンドモード決定（3層構造）
                 let blendMode = 'screen';
                 if (this.layer === 0) {
                     blendMode = 'screen'; // 遠景も光の反射として表現
-                } else if (this.layer === 4) {
-                    blendMode = 'soft-light';
+                } else if (this.layer === 2) {
+                    blendMode = 'soft-light'; // 近景
                 }
 
                 // 画像サイズ計算（ぼかし時のエッジ問題対策）
@@ -2723,38 +2857,9 @@
                 const imgWidth = this.image.width * this.scale * scaleAdjustment;
                 const imgHeight = this.image.height * this.scale * scaleAdjustment;
 
-                // === Layer 2の2枚重ね描画（干渉緩和付き） ===
-                if (this.layer === 2 && this.x2 !== undefined) {
-                    // 1枚目
-                    this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
-                        this.baseOpacity * 0.6, blendMode, filterStr, this.rotation);
-
-                    // === 干渉緩和：半透明グラデーション層（クッション） ===
-                    ctx.save();
-                    ctx.globalAlpha = this.baseOpacity * 0.15;
-                    ctx.globalCompositeOperation = 'screen';
-                    ctx.filter = 'blur(8px)'; // 強めのぼかし
-                    ctx.translate((this.x + this.x2) / 2, (this.y + this.y2) / 2); // 中間位置（x,y両方）
-
-                    // ぼかしたグラデーション塗りつぶし
-                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, imgWidth * 0.7);
-                    gradient.addColorStop(0, 'rgba(200, 210, 230, 0.6)');
-                    gradient.addColorStop(0.5, 'rgba(200, 210, 230, 0.3)');
-                    gradient.addColorStop(1, 'rgba(200, 210, 230, 0)');
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(-imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight);
-                    ctx.restore();
-
-                    // 2枚目（位置とスケールと回転が異なる）
-                    const imgWidth2 = this.image.width * this.scale2 * scaleAdjustment;
-                    const imgHeight2 = this.image.height * this.scale2 * scaleAdjustment;
-                    this.drawCloudWithEffects(ctx, this.x2, this.y2, imgWidth2, imgHeight2,
-                        this.baseOpacity * 0.5, blendMode, filterStr, this.rotation2);
-                } else {
-                    // === 通常の描画 ===
-                    this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
-                        this.baseOpacity, blendMode, filterStr, this.rotation);
-                }
+                // === 通常の描画（1枚のみ） ===
+                this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
+                    this.baseOpacity, blendMode, filterStr, this.rotation);
             }
 
             // 雲を各種エフェクト付きで描画するヘルパーメソッド
@@ -2788,17 +2893,15 @@
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
                 // === 3. ソフトエッジ・マスク（放射状透過） ===
-                // 雲の外側を緩やかに透過させて背景に自然に馴染ませる
+                // 雲の外側を緩やかに透過させて背景に自然に馴染ませる - 境界線を完全に消す
                 offCtx.globalCompositeOperation = 'destination-in';
                 const radialMask = offCtx.createRadialGradient(
                     imgWidth, imgHeight / 2, 0,
-                    imgWidth, imgHeight / 2, imgWidth * 2.5  // 半径を少し小さく
+                    imgWidth, imgHeight / 2, imgWidth * 1.5  // 半径を大幅に拡大して柔らかく
                 );
                 radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)');      // 中心：完全不透明
-                radialMask.addColorStop(0.25, 'rgba(0, 0, 0, 1)');   // 25%地点まで完全不透明
-                radialMask.addColorStop(0.5, 'rgba(0, 0, 0, 0.95)'); // 50%地点：わずかに透過
-                radialMask.addColorStop(0.7, 'rgba(0, 0, 0, 0.6)');  // 70%地点：やや透過
-                radialMask.addColorStop(0.85, 'rgba(0, 0, 0, 0.2)'); // 85%地点：かなり透明
+                radialMask.addColorStop(0.4, 'rgba(0, 0, 0, 0.7)');  // 40%地点から透明度を下げる
+                radialMask.addColorStop(0.7, 'rgba(0, 0, 0, 0.2)');  // 70%地点：かなり薄く
                 radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)');      // 外側：完全透明
                 offCtx.fillStyle = radialMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
@@ -2842,16 +2945,176 @@
             }
         }
 
-        // Cloud Manager - Handles 5 parallax layers (層を増やしてより立体的に)
+        // Sun Halo Manager - 日暈（太陽の周りの光の輪）
+        const sunHaloManager = {
+            active: false,
+            sunX: 0,
+            sunY: 0,
+            sunRadius: 40, // 太陽のサイズ（CSS変数 --celestial-body-size の半分）
+            lastCloudCheckTime: 0, // 最後に雲チェックした時間（ミリ秒）
+            cachedCloudOverlapBonus: 0, // キャッシュされた雲のボーナス値
+            cloudCheckInterval: 600000, // 10分 = 600,000ミリ秒
+
+            // 日暈の出現条件をチェック
+            checkConditions() {
+                const solarProgress = getSolarProgress();
+                const cloudCover = weatherState.cloudCover || 0;
+                const condition = weatherState.condition || '';
+
+                // 条件1: 日中である（太陽が出ている）
+                const isDaytime = solarProgress >= 0.1 && solarProgress <= 0.9;
+
+                // 条件2: 天候が適切（晴れまたは曇り）
+                const isValidWeather = condition === 'Clear' || condition === 'Clouds';
+
+                // 条件3: 雲量が適切（20-50%）
+                const isValidCloudCover = cloudCover >= 20 && cloudCover <= 50;
+
+                this.active = isDaytime && isValidWeather && isValidCloudCover;
+                return this.active;
+            },
+
+            // 太陽の位置を更新
+            updateSunPosition() {
+                const solarProgress = getSolarProgress();
+                if (solarProgress >= 0 && solarProgress <= 1) {
+                    const centerX = window.innerWidth / 2;
+                    const radiusX = window.innerWidth * 0.4;
+                    const radiusY = window.innerHeight * 0.5;
+
+                    const angle = Math.PI * solarProgress;
+                    this.sunX = centerX + Math.cos(Math.PI - angle) * radiusX;
+                    this.sunY = window.innerHeight * 0.8 - Math.sin(angle) * radiusY;
+                }
+            },
+
+            // 日暈を描画
+            drawHalo(ctx) {
+                if (!this.active) return;
+
+                ctx.save();
+
+                // 高度な演出1: 時間による色の強調（朝夕は少し濃く）
+                const solarProgress = getSolarProgress();
+                let intensityMultiplier = 1.0;
+
+                // 朝（0.1-0.3）と夕方（0.7-0.9）で色を強調
+                if (solarProgress < 0.3) {
+                    intensityMultiplier = 1.3;
+                } else if (solarProgress > 0.7) {
+                    intensityMultiplier = 1.3;
+                }
+
+                // 高度な演出2: 雲との重なりをチェック（個々の雲の位置を確認）
+                // 軽量化: 10分に1回だけチェック、それ以外はキャッシュを使用
+                let cloudOverlapBonus = 0;
+                const currentTime = Date.now();
+                const timeSinceLastCheck = currentTime - this.lastCloudCheckTime;
+
+                if (timeSinceLastCheck >= this.cloudCheckInterval) {
+                    // 10分経過したので雲チェックを実行
+                    let nearbyCloudCount = 0;
+                    const detectionRadius = this.sunRadius * 6; // 日暈の範囲内
+
+                    // 雲レイヤーをチェック（軽量化: Layer 0スキップ、1つおきにサンプリング）
+                    // Layer 0（遠景）は日暈への影響が少ないためスキップ
+                    for (let layerIndex = 1; layerIndex < cloudManager.layers.length; layerIndex++) {
+                        const layer = cloudManager.layers[layerIndex];
+                        // 1つおきにチェック（サンプリング）
+                        for (let i = 0; i < layer.length; i += 2) {
+                            const cloud = layer[i];
+                            const dx = cloud.x - this.sunX;
+                            const dy = cloud.y - this.sunY;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+
+                            // 太陽の近くに雲がある場合
+                            if (distance < detectionRadius) {
+                                nearbyCloudCount++;
+                            }
+                        }
+                    }
+
+                    // 近くの雲の数に応じてボーナス（最大0.1まで）
+                    cloudOverlapBonus = Math.min(0.1, nearbyCloudCount * 0.02);
+
+                    // キャッシュを更新
+                    this.cachedCloudOverlapBonus = cloudOverlapBonus;
+                    this.lastCloudCheckTime = currentTime;
+                } else {
+                    // 10分経過していないのでキャッシュを使用
+                    cloudOverlapBonus = this.cachedCloudOverlapBonus;
+                }
+
+                // 基本の透明度 15% + ボーナス
+                const baseOpacity = (0.15 + cloudOverlapBonus) * intensityMultiplier;
+
+                // 日暈の半径（太陽の5倍）
+                const haloRadius = this.sunRadius * 5;
+                const ringWidth = this.sunRadius * 1.5; // リングの幅
+
+                // === ドラマチック演出1: 内側の暗闇 ===
+                // 日暈の内側（太陽と虹色の輪の間）を暗く設定
+                const innerDarkness = ctx.createRadialGradient(
+                    this.sunX, this.sunY, this.sunRadius * 1.2,
+                    this.sunX, this.sunY, haloRadius - ringWidth * 0.5
+                );
+                innerDarkness.addColorStop(0, 'rgba(0, 0, 30, 0)');         // 中心は透明
+                innerDarkness.addColorStop(0.3, 'rgba(0, 0, 40, 0.15)');    // 暗い紺色
+                innerDarkness.addColorStop(0.7, 'rgba(0, 0, 50, 0.25)');    // さらに暗く
+                innerDarkness.addColorStop(1, 'rgba(0, 0, 60, 0.1)');       // 外側は薄く
+
+                ctx.globalCompositeOperation = 'multiply';
+                ctx.filter = 'blur(30px)';
+                ctx.fillStyle = innerDarkness;
+                ctx.beginPath();
+                ctx.arc(this.sunX, this.sunY, haloRadius - ringWidth * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // === ドラマチック演出2: 虹色の輪（不規則な輝き） ===
+                // 虹色のグラデーション（内側が赤、外側が青）
+                const gradient = ctx.createRadialGradient(
+                    this.sunX, this.sunY, haloRadius - ringWidth,
+                    this.sunX, this.sunY, haloRadius + ringWidth
+                );
+
+                // 雲と重なった部分の輝きを表現（ベースの透明度を調整）
+                const brightnessBoost = 1.0 + cloudOverlapBonus * 2; // 雲が近いと最大1.2倍の輝き
+
+                // 内側から外側への虹色グラデーション
+                gradient.addColorStop(0, `rgba(255, 100, 100, 0)`);           // 透明
+                gradient.addColorStop(0.3, `rgba(255, 150, 100, ${baseOpacity * 0.8 * brightnessBoost})`); // 赤っぽい
+                gradient.addColorStop(0.4, `rgba(255, 220, 150, ${baseOpacity * brightnessBoost})`);       // オレンジ
+                gradient.addColorStop(0.5, `rgba(255, 255, 200, ${baseOpacity * brightnessBoost})`);       // 黄色
+                gradient.addColorStop(0.6, `rgba(200, 255, 200, ${baseOpacity * brightnessBoost})`);       // 緑
+                gradient.addColorStop(0.7, `rgba(150, 200, 255, ${baseOpacity * 0.8 * brightnessBoost})`); // 青っぽい
+                gradient.addColorStop(1, `rgba(150, 150, 255, 0)`);           // 透明
+
+                // 合成モード: 光を足し合わせる
+                ctx.globalCompositeOperation = 'screen';
+
+                // ぼかし効果で境界を曖昧に
+                ctx.filter = 'blur(20px)';
+
+                // 日暈を描画
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.sunX, this.sunY, haloRadius + ringWidth, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        };
+
+        // Cloud Manager - Handles 3 parallax layers (軽量化のため3層に削減)
         const cloudManager = {
-            layers: [[], [], [], [], []],
-            maxClouds: 50, // 層を増やしたので総数も少し増やす
+            layers: [[], [], []],
+            maxClouds: 30, // 軽量化のため30個に削減
             initialized: false,
             forceCloudType: null, // For testing: force specific cloud type
 
             init(weatherCondition) {
                 // Clear existing clouds
-                this.layers = [[], [], [], [], []];
+                this.layers = [[], [], []];
 
                 // Determine cloud count based on actual cloud cover data
                 const cloudCover = weatherState.cloudCover || 0; // 0-100%
@@ -2859,29 +3122,25 @@
 
                 // Special cases for specific weather conditions
                 if (weatherCondition === 'Mist' || weatherCondition === 'Fog') {
-                    cloudCount = [0, 0, 0, 0, 0]; // No high clouds for fog
+                    cloudCount = [0, 0, 0]; // No high clouds for fog
                 } else if (weatherCondition === 'Thunderstorm') {
                     // Thunderstorm: dense, dark clouds (boost cloud count)
-                    const baseCount = Math.floor(cloudCover * 0.12); // 0-12 per layer
+                    const baseCount = Math.floor(cloudCover * 0.08); // 軽量化のため削減
                     cloudCount = [
-                        Math.max(8, baseCount),
-                        Math.max(10, baseCount + 2),
-                        Math.max(12, baseCount + 4),
-                        Math.max(10, baseCount + 2),
-                        Math.max(6, baseCount - 2)
+                        Math.max(5, baseCount),
+                        Math.max(8, baseCount + 3),
+                        Math.max(4, baseCount - 1)
                     ];
                 } else {
                     // Use actual cloud cover percentage to determine count
                     // 0% = minimal clouds, 100% = maximum clouds
-                    const totalClouds = Math.floor(cloudCover * 0.5); // 0-50 clouds max
+                    const totalClouds = Math.floor(cloudCover * 0.3); // 0-30 clouds max (軽量化)
 
-                    // Layer distribution: 5層に均等分散（各20%）
+                    // Layer distribution: 3層に分散（Layer 0, 2, 4相当）
                     cloudCount = [
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 0 (最奥) - 20%
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 1 - 20%
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 2 (中央) - 20%
-                        Math.max(1, Math.floor(totalClouds * 0.20)), // Layer 3 - 20%
-                        Math.max(1, Math.floor(totalClouds * 0.20))  // Layer 4 (最前) - 20%
+                        Math.max(1, Math.floor(totalClouds * 0.30)), // Layer 0 (最奥・遠景) - 30%
+                        Math.max(1, Math.floor(totalClouds * 0.40)), // Layer 2 (中央) - 40%
+                        Math.max(1, Math.floor(totalClouds * 0.30))  // Layer 4 (最前・近景) - 30%
                     ];
                 }
 
@@ -2913,7 +3172,8 @@
                 if (!this.initialized) return;
 
                 // Draw layers in order (back to front) for proper depth
-                for (let i = 0; i < 5; i++) {
+                // 3層構造に対応
+                for (let i = 0; i < this.layers.length; i++) {
                     for (let cloud of this.layers[i]) {
                         cloud.draw(ctx);
                     }
@@ -3296,10 +3556,10 @@
         let lastShootingStarTime = Date.now();
         let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
 
-        // Animation loop - 24fps target (41.67ms per frame)
+        // Animation loop - 15fps target (66.67ms per frame)
         let frameCount = 0;
         let lastFrameTime = performance.now();
-        const targetFrameTime = 1000 / 24; // 24fps = 41.67ms per frame
+        const targetFrameTime = 1000 / 15; // 15fps = 66.67ms per frame
 
         function animateParticles(currentTime) {
             requestAnimationFrame(animateParticles);
@@ -3307,7 +3567,7 @@
             // Calculate time since last frame
             const deltaTime = currentTime - lastFrameTime;
 
-            // Skip frame if not enough time has passed (throttle to 24fps)
+            // Skip frame if not enough time has passed (throttle to 15fps)
             if (deltaTime < targetFrameTime) {
                 return;
             }
@@ -3317,6 +3577,11 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             cloudCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
+
+            // NEW: Update and draw sun halo (日暈) - before clouds so clouds pass over it
+            sunHaloManager.checkConditions();
+            sunHaloManager.updateSunPosition();
+            sunHaloManager.drawHalo(cloudCtx);
 
             // NEW: Update cloud positions
             cloudManager.updateClouds();
@@ -3479,6 +3744,11 @@
             // Update catalog stars if in night mode (refresh every 60 seconds)
             if (now.getHours() >= 20 || now.getHours() < 5) {
                 initializeCatalogStars();
+            }
+
+            // Update rain sound based on weather (if sound control is initialized)
+            if (typeof updateRainSound === 'function') {
+                updateRainSound();
             }
         }
 
@@ -3665,6 +3935,40 @@
                 clockToggleBtn.classList.remove('active');
             }
         });
+
+        // Sound toggle button
+        const soundBtn = document.getElementById('btn-sound');
+        const rainAudio = document.getElementById('audio-rain');
+        rainAudio.volume = 0.5; // デフォルト音量50%
+        let soundEnabled = false;
+
+        soundBtn.addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+
+            if (soundEnabled) {
+                soundBtn.classList.add('active');
+                // 雨が降っている場合は即座に再生
+                if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle') {
+                    rainAudio.play().catch(e => console.log('Audio play failed:', e));
+                }
+            } else {
+                soundBtn.classList.remove('active');
+                rainAudio.pause();
+            }
+        });
+
+        // 天気が変わった時にサウンドを制御する関数
+        window.updateRainSound = function() {
+            if (!soundEnabled) return;
+
+            const isRaining = weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle';
+
+            if (isRaining && rainAudio.paused) {
+                rainAudio.play().catch(e => console.log('Audio play failed:', e));
+            } else if (!isRaining && !rainAudio.paused) {
+                rainAudio.pause();
+            }
+        };
 
         // Star labels toggle button
         const starLabelsBtn = document.getElementById('btn-star-labels');
