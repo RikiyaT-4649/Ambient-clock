@@ -3,7 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        img-src 'self' data:;
+        font-src 'self' https://fonts.gstatic.com;
+        connect-src 'self' https://api.open-meteo.com https://nominatim.openstreetmap.org;
+        media-src 'self';
+        object-src 'none';
+        base-uri 'self';
+        form-action 'none';
+        frame-ancestors 'none';
+    ">
+
     <title>Ambient Clock</title>
 
     <meta name="description" content="A relaxing ambient clock that visualizes real-time weather and star positions.">
@@ -119,7 +132,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 2; /* Stars layer */
+            z-index: 3; /* Stars layer - above sun/moon */
             pointer-events: none;
         }
 
@@ -132,7 +145,7 @@
             height: 100%;
             background: linear-gradient(to bottom, #0a0e1a 0%, #141824 100%);
             opacity: 0;
-            z-index: 3; /* Between stars (2) and clouds (4) */
+            z-index: 4; /* Between stars (3) and clouds (5) */
             pointer-events: none;
             transition: opacity 2s ease;
         }
@@ -144,7 +157,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 4; /* Clouds layer (above moon/sun) */
+            z-index: 5; /* Clouds layer (above moon/sun and stars) */
             pointer-events: none;
         }
 
@@ -451,7 +464,7 @@
             width: var(--celestial-body-size);
             height: var(--celestial-body-size);
             border-radius: 50%;
-            z-index: 3; /* Above stars and clouds to properly occlude them */
+            z-index: 2; /* Above background, behind stars and clouds */
             transition: all 3s ease;
             pointer-events: none;
         }
@@ -462,43 +475,6 @@
                 0 0 40px rgba(255, 255, 255, 0.9),
                 0 0 80px rgba(255, 252, 240, 0.6),
                 0 0 120px rgba(255, 248, 220, 0.4);
-        }
-
-        /* 光条（Sunbeams / Lens Flare） - 晴天時のみ表示 */
-        .sunbeams-container {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            animation: rotateSunbeams 180s linear infinite;
-        }
-
-        .sunbeam {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 350px;
-            height: 4px;
-            background: linear-gradient(90deg,
-                transparent 0%,
-                rgba(255, 255, 255, 0.12) 40%,
-                rgba(255, 255, 255, 0.25) 50%,
-                rgba(255, 255, 255, 0.12) 60%,
-                transparent 100%);
-            pointer-events: none;
-            opacity: 0.5;
-            transform-origin: center;
-        }
-
-        @keyframes rotateSunbeams {
-            0% {
-                transform: translate(-50%, -50%) rotate(0deg);
-            }
-            100% {
-                transform: translate(-50%, -50%) rotate(360deg);
-            }
         }
 
         /* 太陽の日暈（ハロー）- 薄い光の輪 */
@@ -1003,13 +979,11 @@
                             });
                         },
                         (error) => {
-                            console.log('Geolocation denied or failed, using Tokyo as fallback');
                             resolve(weatherState.coords); // Fallback to Tokyo
                         },
                         { timeout: 10000 }
                     );
                 } else {
-                    console.log('Geolocation not supported, using Tokyo as fallback');
                     resolve(weatherState.coords); // Fallback to Tokyo
                 }
             });
@@ -1136,15 +1110,12 @@
                 const data = await response.json();
 
                 // Debug: Log API response structure
-                console.log('Weather API response:', data);
-                console.log('current object:', data.current);
 
                 // Extract cloud cover from current object
                 let cloudCover = 0;
                 if (data.current && data.current.cloud_cover !== undefined) {
                     cloudCover = data.current.cloud_cover;
                 }
-                console.log('Cloud cover extracted:', cloudCover);
 
                 return {
                     condition: mapWeatherCode(data.current.weathercode),
@@ -1220,10 +1191,6 @@
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
 
-                    console.log(`Weather loaded: ${cityName}, ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%, Precipitation: ${weather.precipitation}mm/h`);
-                    console.log(`Sunrise: ${formatTime(weather.sunrise)}, Sunset: ${formatTime(weather.sunset)}`);
-                    console.log(`weatherState.condition set to: "${weatherState.condition}"`);
-                    console.log(`Current hour: ${new Date().getHours()}`);
 
                     // Update UI
                     document.getElementById('weather-location').textContent = cityName.toUpperCase();
@@ -1266,7 +1233,6 @@
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
 
-                    console.log(`Weather updated: ${weather.condition}, ${weather.temp}°C, Cloud: ${weather.cloudCover}%`);
 
                     // Update UI
                     document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
@@ -1296,7 +1262,6 @@
             if ((currentHour === 7 || currentHour === 18)) {
                 // Prevent duplicate updates within the same hour
                 if (lastWeatherUpdate.date !== currentDate || lastWeatherUpdate.hour !== currentHour) {
-                    console.log(`Scheduled weather update triggered at ${currentHour}:00`);
                     updateWeather();
                 }
             }
@@ -1693,8 +1658,8 @@
             const radiusX = window.innerWidth * 0.4;
             const radiusY = window.innerHeight * 0.5; // Large arc for high peak (30% from top at noon)
 
-            if (solarProgress >= 0 && solarProgress < 0.95) {
-                // Daytime: Show sun (半分沈んだら非表示)
+            if (solarProgress >= 0 && solarProgress <= 1.0) {
+                // Daytime: Show sun (日中は常に太陽を表示)
                 celestialBody.className = 'sun';
 
                 // Sun movement: sunrise (left) → noon (top ~30% from top) → sunset (right)
@@ -1705,22 +1670,7 @@
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
                 celestialBody.style.opacity = '1';
-
-                // 光条（Sunbeams）のHTML要素を生成 - 8本の光線
-                // 条件: 晴天時 かつ 朝〜午前・午後（日の出、黄昏、残照の時間帯を除外）
-                let sunbeamsHTML = '';
-                const showSunbeams = weatherState.condition === 'Clear' &&
-                                     solarProgress > 0.2 && solarProgress < 0.7;
-
-                if (showSunbeams) {
-                    sunbeamsHTML = '<div class="sunbeams-container">';
-                    for (let i = 0; i < 8; i++) {
-                        const rotation = i * 22.5; // 22.5度ずつ回転（8本で180度カバー）
-                        sunbeamsHTML += `<div class="sunbeam" style="transform: translate(-50%, -50%) rotate(${rotation}deg);"></div>`;
-                    }
-                    sunbeamsHTML += '</div>';
-                }
-                celestialBody.innerHTML = sunbeamsHTML;
+                celestialBody.innerHTML = ''; // 太陽は背景グラデーションとbox-shadowのみ
 
                 // 時間帯による太陽の性格変化
                 let sunSize, sunGradient, sunShadow, sunFilter, sunClipPath;
@@ -1765,10 +1715,19 @@
                     sunShadow = 'none'; // 光の広がりを削除
                     sunFilter = 'blur(3px)';
                     // 地平線に沈むように下から直線的に消える（円形を保持）
-                    // 日没30分前から0.95までの範囲で半分沈むまで表示
-                    const sunsetRange = 0.95 - sunsetStartProgress; // 沈む期間
-                    const fadeProgress = (solarProgress - sunsetStartProgress) / sunsetRange; // 0.0 -> 1.0
-                    sunClipPath = `inset(0 0 ${fadeProgress * 50}% 0 round 50%)`;
+                    // 日没30分前から日没までの範囲で徐々に沈む
+                    const sunsetRange = 1.0 - sunsetStartProgress; // 沈む期間（日没30分前～日没）
+                    const fadeProgress = Math.min(1.0, (solarProgress - sunsetStartProgress) / sunsetRange); // 0.0 -> 1.0
+
+                    if (fadeProgress >= 0.5) {
+                        // 半分沈んだら完全に非表示
+                        celestialBody.style.opacity = '0';
+                        sunClipPath = 'none';
+                    } else {
+                        // 半分沈むまでは徐々に切り取る（0%～100%）
+                        celestialBody.style.opacity = '1';
+                        sunClipPath = `inset(0 0 ${fadeProgress * 100}% 0 round 50%)`;
+                    }
 
                 } else {
                     // 中間の時間帯（朝〜午前、午後）は通常の太陽 - 白く眩しく
@@ -2696,7 +2655,6 @@
         cloudImages.far.onload = cloudImages.main.onload = cloudImages.near.onload = () => {
             cloudImages.loaded++;
             if (cloudImages.loaded === 3) {
-                console.log('All cloud images loaded successfully');
             }
         };
 
@@ -3154,7 +3112,6 @@
                 this.initialized = true;
                 const totalCloudCount = cloudCount.reduce((a, b) => a + b, 0);
                 const typeInfo = this.forceCloudType ? ` (forced type: ${this.forceCloudType})` : '';
-                console.log(`Clouds initialized: ${weatherCondition}, Cloud cover: ${cloudCover}% (${totalCloudCount} total clouds: ${cloudCount.join('/')})${typeInfo}`);
             },
 
             updateClouds() {
@@ -3322,13 +3279,11 @@
             activate() {
                 this.active = true;
                 this.nextStrikeTime = Date.now() + (Math.random() * 600000 + 400000); // 400-1000s (6.7-16.7 min)
-                console.log('Lightning activated');
             },
 
             deactivate() {
                 this.active = false;
                 this.activeBolts = [];
-                console.log('Lightning deactivated');
             },
 
             update() {
@@ -3512,13 +3467,11 @@
                 return;
             }
 
-            console.log('Updating Hipparcos catalog star field...');
 
             catalogStars = createCatalogStars();
             lastStarUpdateTime = now;
 
             if (catalogStars && catalogStars.length > 0) {
-                console.log(`Loaded ${catalogStars.length} visible catalog stars`);
 
                 // Clear existing particles and replace with catalog stars
                 particles = [];
@@ -3531,7 +3484,6 @@
                     particles.push(particle);
                 }
 
-                console.log(`Created ${particles.length} star particles from catalog`);
             } else {
                 // Fallback to random stars if catalog fails
                 console.warn('No visible catalog stars. Using random stars.');
@@ -3540,13 +3492,11 @@
         }
 
         function createParticles(type, count) {
-            console.log(`createParticles called: type=${type}, count=${count}`);
             particles = [];
             currentParticleType = type;
             for (let i = 0; i < count; i++) {
                 particles.push(new Particle(type));
             }
-            console.log(`Particles created: total=${particles.length}, currentType=${currentParticleType}`);
         }
 
         // Create initial particles - full starry sky
@@ -3653,7 +3603,6 @@
                         // If we have precipitation data, use it for realistic particle count
                         if (weatherState.precipitation > 0) {
                             rainCount = calculateRainParticles(weatherState.precipitation);
-                            console.log(`Creating rain particles based on precipitation: ${weatherState.precipitation}mm/h → ${rainCount} particles`);
                         } else {
                             // Fallback: use weather condition if precipitation data unavailable
                             if (weatherState.condition === 'Drizzle') {
@@ -3663,7 +3612,6 @@
                             } else {
                                 rainCount = 350; // Moderate rain
                             }
-                            console.log(`Creating rain particles (fallback): condition=${weatherState.condition} → ${rainCount} particles`);
                         }
 
                         createParticles('rain', rainCount);
@@ -3682,7 +3630,6 @@
             // Use actual sunrise/sunset times to determine nighttime
             if (isNighttime()) {
                 if (currentParticleType !== 'star') {
-                    console.log('Transitioning to night mode - loading Hipparcos catalog stars');
                     initializeCatalogStars();
                 } else {
                     // Refresh catalog stars every 60 seconds to reflect Earth's rotation
@@ -3703,7 +3650,6 @@
         // NEW: Update weather effects (clouds and lightning)
         function updateWeatherEffects() {
             const condition = weatherState.condition;
-            console.log(`updateWeatherEffects called with condition: ${condition}`);
 
             // Initialize cloud manager if not already done
             if (!cloudManager.initialized) {
@@ -3949,7 +3895,6 @@
                 soundBtn.classList.add('active');
                 // 雨が降っている場合は即座に再生
                 if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle') {
-                    rainAudio.play().catch(e => console.log('Audio play failed:', e));
                 }
             } else {
                 soundBtn.classList.remove('active');
@@ -3964,7 +3909,6 @@
             const isRaining = weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle';
 
             if (isRaining && rainAudio.paused) {
-                rainAudio.play().catch(e => console.log('Audio play failed:', e));
             } else if (!isRaining && !rainAudio.paused) {
                 rainAudio.pause();
             }
@@ -4011,7 +3955,6 @@
             if (e.target.closest('#controls')) return;
 
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(e => console.log(e));
             } else {
                 document.exitFullscreen();
             }
@@ -4144,7 +4087,6 @@
 
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(e => console.log(e));
             } else {
                 document.exitFullscreen();
             }
@@ -4224,270 +4166,6 @@
                 }
             };
         }
-
-
-        // --- Global Helper Functions (accessible from browser console) ---
-
-        // Display current weather information
-        window.showWeather = function() {
-            console.log('\n=== CURRENT WEATHER INFORMATION ===');
-            console.log(`Location: ${weatherState.city || 'Unknown'}`);
-            console.log(`Coordinates: ${weatherState.coords.lat.toFixed(4)}, ${weatherState.coords.lon.toFixed(4)}`);
-            console.log(`Condition: ${weatherState.condition || 'Unknown'}`);
-            console.log(`Temperature: ${weatherState.temp ? weatherState.temp.toFixed(1) + '°C' : 'Unknown'}`);
-            console.log(`Wind Speed: ${weatherState.windSpeed ? weatherState.windSpeed.toFixed(1) + ' km/h' : 'Unknown'}`);
-            console.log(`Cloud Cover: ${weatherState.cloudCover !== undefined ? weatherState.cloudCover + '%' : 'Unknown'}`);
-            console.log(`Moon Phase: ${weatherState.moonPhase !== undefined ? (weatherState.moonPhase * 100).toFixed(1) + '%' : 'Unknown'} (0%=New, 50%=Full)`);
-            console.log(`Sunrise: ${formatTime(weatherState.sunrise)}`);
-            console.log(`Sunset: ${formatTime(weatherState.sunset)}`);
-            console.log('===================================\n');
-            console.log('Tip: Type "weatherState" to see the raw data object');
-        };
-
-        // Display cloud information
-        window.showClouds = function() {
-            console.log('\n=== CLOUD INFORMATION ===');
-            console.log(`Cloud Cover: ${weatherState.cloudCover || 0}%`);
-            console.log(`Total Clouds: ${cloudManager.layers[0].length + cloudManager.layers[1].length + cloudManager.layers[2].length}`);
-            console.log(`  - Background layer: ${cloudManager.layers[0].length} clouds`);
-            console.log(`  - Middle layer: ${cloudManager.layers[1].length} clouds`);
-            console.log(`  - Front layer: ${cloudManager.layers[2].length} clouds`);
-            console.log('=========================\n');
-        };
-
-        // Display particle information
-        window.showParticles = function() {
-            console.log('\n=== PARTICLE INFORMATION ===');
-            console.log(`Current Type: ${currentParticleType}`);
-            console.log(`Active Particles: ${particles.length}`);
-            console.log(`Rain Splashes: ${rainSplashes.length}`);
-            console.log(`Lightning Active: ${lightningManager.active}`);
-            console.log('============================\n');
-        };
-
-        // --- Developer Test Mode Functions ---
-
-        // Set cloud type (cumulus, stratus, cirrus, cumulonimbus, or auto)
-        window.setCloudType = function(type) {
-            const validTypes = ['cumulus', 'stratus', 'cirrus', 'cumulonimbus', 'auto'];
-
-            if (!validTypes.includes(type)) {
-                console.error(`Invalid cloud type. Use one of: ${validTypes.join(', ')}`);
-                return;
-            }
-
-            if (type === 'auto') {
-                cloudManager.forceCloudType = null;
-                console.log('%c✓ Cloud type set to: AUTO (normal behavior)', 'color: #4CAF50; font-weight: bold');
-            } else {
-                cloudManager.forceCloudType = type;
-                console.log(`%c✓ Cloud type set to: ${type.toUpperCase()}`, 'color: #4CAF50; font-weight: bold');
-            }
-
-            // Reinitialize clouds with new type
-            const currentCondition = weatherState.condition || 'Clear';
-            cloudManager.init(currentCondition);
-
-            console.log(`Cloud types:
-  - cumulus: Puffy, rounded clouds (12-20 particles)
-  - stratus: Wide, flat layered clouds (15-25 particles)
-  - cirrus: Thin, wispy clouds (8-14 particles)
-  - cumulonimbus: Towering storm clouds (18-30 particles)
-  - auto: Automatic based on layer and weather`);
-        };
-
-        // Set weather condition
-        window.setWeather = function(condition) {
-            const validConditions = ['Clear', 'Clouds', 'Rain', 'Drizzle', 'Snow', 'Thunderstorm', 'Mist', 'Fog'];
-
-            if (!validConditions.includes(condition)) {
-                console.error(`Invalid condition. Use one of: ${validConditions.join(', ')}`);
-                return;
-            }
-
-            weatherOverride = condition;
-            weatherState.condition = condition;
-
-            console.log(`%c✓ Weather set to: ${condition}`, 'color: #4CAF50; font-weight: bold');
-
-            // Update visual effects
-            updateWeatherEffects();
-
-            // Update particles
-            const now = new OriginalDate();
-            updateParticleType(now.getHours());
-        };
-
-        // Set time (24-hour format)
-        window.setTime = function(hours, minutes = 0, seconds = 0) {
-            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
-                console.error('Invalid time. Hours: 0-23, Minutes: 0-59, Seconds: 0-59');
-                return;
-            }
-
-            timeOverride = { hours, minutes, seconds };
-
-            // Override global Date
-            window.Date = createDateOverride();
-
-            console.log(`%c✓ Time set to: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`, 'color: #4CAF50; font-weight: bold');
-
-            // Force update clock and time-of-day effects
-            updateClock();
-            updateTimeOfDay(hours, minutes);
-            updateCelestialBody(hours, minutes);
-        };
-
-        // Reset weather to actual conditions
-        window.resetWeather = function() {
-            weatherOverride = null;
-            console.log('%c✓ Weather reset to actual conditions', 'color: #FF9800; font-weight: bold');
-            console.log('Reload page to fetch fresh weather data');
-        };
-
-        // Reset time to actual time
-        window.resetTime = function() {
-            timeOverride = null;
-            window.Date = OriginalDate;
-
-            console.log('%c✓ Time reset to actual time', 'color: #FF9800; font-weight: bold');
-
-            // Force update
-            updateClock();
-            const now = new OriginalDate();
-            updateTimeOfDay(now.getHours(), now.getMinutes());
-            updateCelestialBody(now.getHours(), now.getMinutes());
-        };
-
-        // Quick time presets
-        window.setTimePreset = function(preset) {
-            const presets = {
-                'midnight': [0, 0],
-                'dawn': [5, 30],
-                'sunrise': [6, 30],
-                'morning': [9, 0],
-                'noon': [12, 0],
-                'afternoon': [15, 0],
-                'sunset': [18, 0],
-                'dusk': [19, 30],
-                'night': [22, 0]
-            };
-
-            if (!presets[preset]) {
-                console.error(`Invalid preset. Use one of: ${Object.keys(presets).join(', ')}`);
-                return;
-            }
-
-            const [h, m] = presets[preset];
-            setTime(h, m);
-            console.log(`%c✓ Time preset "${preset}" applied`, 'color: #2196F3; font-weight: bold');
-        };
-
-        // Show current test mode status
-        window.testMode = function() {
-            console.log('\n=== TEST MODE STATUS ===');
-            console.log(`Weather Override: ${weatherOverride || 'None (using actual weather)'}`);
-            console.log(`Time Override: ${timeOverride ? `${String(timeOverride.hours).padStart(2, '0')}:${String(timeOverride.minutes).padStart(2, '0')}` : 'None (using actual time)'}`);
-            console.log('========================\n');
-        };
-
-        // Set rain particles directly by count (for testing visual density)
-        window.setRainParticles = function(count) {
-            if (typeof count !== 'number' || count < 0 || count > 1000) {
-                console.error('Invalid particle count. Use a number between 0 and 1000.');
-                return;
-            }
-
-            console.log(`%c✓ Creating ${count} rain particles`, 'color: #4CAF50; font-weight: bold');
-            createParticles('rain', count);
-
-            console.log(`%cℹ️ Current particle count: ${particles.length}`, 'color: #2196F3');
-            console.log('Tip: Use showParticles() to see detailed particle information');
-        };
-
-        // Test precipitation rate and see resulting particle count (logarithmic scale)
-        window.testPrecipitation = function(mmPerHour) {
-            if (typeof mmPerHour !== 'number' || mmPerHour < 0) {
-                console.error('Invalid precipitation rate. Use a positive number (mm/h).');
-                console.log('\n💡 Reference values:');
-                console.log('  0.1 mm/h  = Light drizzle');
-                console.log('  1 mm/h    = Light rain');
-                console.log('  5 mm/h    = Moderate rain');
-                console.log('  10 mm/h   = Heavy rain');
-                console.log('  20 mm/h   = Very heavy rain');
-                console.log('  50 mm/h   = Extreme rainfall');
-                return;
-            }
-
-            const particleCount = calculateRainParticles(mmPerHour);
-
-            console.log('\n=== PRECIPITATION TEST ===');
-            console.log(`Input: ${mmPerHour} mm/h`);
-            console.log(`Calculated particles: ${particleCount}`);
-            console.log('==========================');
-
-            // Show calculation details
-            console.log('\n📊 Logarithmic Scale Calculation:');
-            console.log(`  Formula: 100 + 150 × log₁₀(${mmPerHour} × 10)`);
-            console.log(`  Result: ${particleCount} particles (clamped to 50-800 range)`);
-
-            // Create the particles
-            console.log(`\n%c✓ Creating ${particleCount} rain particles`, 'color: #4CAF50; font-weight: bold');
-
-            // Set weather to Rain if not already
-            if (weatherState.condition !== 'Rain') {
-                weatherState.condition = 'Rain';
-                weatherOverride = 'Rain';
-                updateWeatherEffects();
-            }
-
-            // Override precipitation value
-            weatherState.precipitation = mmPerHour;
-
-            createParticles('rain', particleCount);
-
-            console.log('Tip: Try different values to see how rain intensity changes');
-            console.log('Example: testPrecipitation(0.5) or testPrecipitation(25)');
-        };
-
-        // Display all available console commands
-        window.help = function() {
-            console.log('\n=== AVAILABLE CONSOLE COMMANDS ===');
-            console.log('\n📊 Information:');
-            console.log('  showWeather()   - Display current weather data');
-            console.log('  showClouds()    - Display cloud information');
-            console.log('  showParticles() - Display particle information');
-            console.log('  weatherState    - Access raw weather data object');
-
-            console.log('\n🧪 Test Mode (Developer):');
-            console.log('  setWeather(condition)      - Set weather (Clear/Clouds/Rain/Drizzle/Snow/Thunderstorm/Mist/Fog)');
-            console.log('  setCloudType(type)         - Set cloud type (cumulus/stratus/cirrus/cumulonimbus/auto)');
-            console.log('  setTime(h, m, s)           - Set time (24-hour format)');
-            console.log('  setTimePreset(preset)      - Quick time (midnight/dawn/sunrise/morning/noon/afternoon/sunset/dusk/night)');
-            console.log('  setRainParticles(count)    - Set rain particles directly (0-1000)');
-            console.log('  testPrecipitation(mm/h)    - Test precipitation rate with logarithmic scale');
-            console.log('  resetWeather()             - Reset to actual weather');
-            console.log('  resetTime()                - Reset to actual time');
-            console.log('  testMode()                 - Show test mode status');
-
-            console.log('\n❓ Help:');
-            console.log('  help()          - Show this help message');
-            console.log('===================================\n');
-
-            console.log('💡 Examples:');
-            console.log('  setWeather("Rain")');
-            console.log('  setCloudType("cumulus")  // Show only cumulus clouds');
-            console.log('  setTime(14, 30)  // 2:30 PM');
-            console.log('  setTimePreset("sunset")');
-            console.log('  setRainParticles(500)  // Create 500 rain particles');
-            console.log('  testPrecipitation(2.5)  // Simulate 2.5mm/h rainfall');
-        };
-
-        // Auto-display help on page load
-        console.log('%c🌤️ Ambient Clock Console Commands', 'font-size: 16px; font-weight: bold; color: #4CAF50');
-        console.log('Type help() to see available commands');
-        console.log('%c🧪 Test Mode Available', 'color: #2196F3; font-weight: bold');
-        console.log('Try: setWeather("Rain") or setTimePreset("sunset")');
 
     </script>
 </body>
