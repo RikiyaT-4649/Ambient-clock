@@ -306,6 +306,9 @@
                 }
             } catch (error) {
                 // Weather initialization failed
+            } finally {
+                // Mark app as loaded (show celestial body and effects)
+                document.body.classList.add('app-loaded');
             }
         }
 
@@ -895,10 +898,15 @@
                 celestialBody.style.opacity = '1';
 
                 const phase = weatherState.moonPhase || 0.5;
-    
+
+                // Calculate moon rotation based on position in the sky
+                // moonProgress: 0.0 (sunset/left) → 0.5 (midnight/zenith) → 1.0 (sunrise/right)
+                // rotation: -30° (tilt left) → 0° (vertical) → +30° (tilt right)
+                const moonRotation = (moonProgress - 0.5) * 60; // -30° to +30°
+
                 // 月の見た目を生成する関数
-                celestialBody.innerHTML = getMoonSVG(phase);
-                
+                celestialBody.innerHTML = getMoonSVG(phase, moonRotation);
+
                 // 背景色と影をリセット（SVGで描くため、CSSの円は透明にする）
                 celestialBody.style.background = 'transparent';
                 celestialBody.style.boxShadow = 'none'; // CSSの影は消してSVGのglowを使う
@@ -906,10 +914,11 @@
         }
 
 
-        function getMoonSVG(phase) {
+        function getMoonSVG(phase, rotation = 0) {
     // 数学的に正確な満ち欠け計算
     // 外側の半円と内側の半楕円を組み合わせる方法
     // phase: 0 = 新月, 0.5 = 満月, 1.0 = 新月
+    // rotation: 月の傾き（度）、moonProgressに基づいて計算
 
     // Validate phase input
     if (typeof phase !== 'number' || !Number.isFinite(phase)) {
@@ -919,6 +928,12 @@
     // Clamp phase to valid range [0, 1]
     phase = Math.max(0, Math.min(1, phase));
 
+    // Validate and clamp rotation (-90° to 90°)
+    if (typeof rotation !== 'number' || !Number.isFinite(rotation)) {
+        rotation = 0;
+    }
+    rotation = Math.max(-90, Math.min(90, rotation));
+
     const R = 38; // SVG内での月の半径
 
     // 楕円の水平半径: rx = R * cos(2π * phase)
@@ -926,7 +941,7 @@
 
     // 新月の場合（ほぼ見えない）
     if (phase < 0.02 || phase > 0.98) {
-        return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1);"></div>`;
+        return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1); transform: rotate(${rotation}deg);"></div>`;
     }
 
     // 満月の場合（完全な円）
@@ -938,6 +953,7 @@
             border-radius: 50%;
             overflow: hidden;
             box-shadow: 0 0 15px rgba(255, 255, 255, 0.3), 0 0 40px rgba(255, 255, 255, 0.15);
+            transform: rotate(${rotation}deg);
         ">
             <img src="moon.jpg" style="
                 width: 100%;
@@ -967,7 +983,7 @@
     const clipId = `moonClip${Math.random().toString(36).slice(2, 11)}`;
 
     return `
-    <svg width="80" height="80" viewBox="0 0 80 80" style="filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.12));">
+    <svg width="80" height="80" viewBox="0 0 80 80" style="filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.12)); transform: rotate(${rotation}deg);">
         <defs>
             <clipPath id="${clipId}">
                 <path d="${clipPath}" />
@@ -2503,7 +2519,7 @@
         // This function runs every 60 seconds to update star positions
         function createCatalogStars() {
             if (typeof HIPPARCOS_STARS === 'undefined' || !HIPPARCOS_STARS || HIPPARCOS_STARS.length === 0) {
-                console.warn('HIPPARCOS_STARS not loaded. Falling back to random stars.');
+                // HIPPARCOS_STARS not loaded, using fallback
                 return null;
             }
 
@@ -2586,7 +2602,7 @@
 
             } else {
                 // Fallback to random stars if catalog fails
-                console.warn('No visible catalog stars. Using random stars.');
+                // No visible catalog stars, using random fallback
                 createParticles('star', 800);
             }
         }

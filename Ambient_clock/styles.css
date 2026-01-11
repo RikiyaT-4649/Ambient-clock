@@ -868,3 +868,12 @@
     cursor: default;
     opacity: 0.8;
 }
+
+/* Initial loading state - hide elements until JavaScript initialization */
+body:not(.app-loaded) #celestial-body,
+body:not(.app-loaded) #particle-canvas,
+body:not(.app-loaded) #cloud-canvas,
+body:not(.app-loaded) #sky-cover-overlay {
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
