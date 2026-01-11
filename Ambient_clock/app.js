@@ -12,6 +12,27 @@
             coords: { lat: 35.6762, lon: 139.6503 } // Tokyo fallback
         };
 
+        // Validate latitude and longitude values
+        function validateCoordinates(lat, lon) {
+            // Check if values are numbers
+            if (typeof lat !== 'number' || typeof lon !== 'number') {
+                return false;
+            }
+            // Check if values are finite (not NaN, Infinity, -Infinity)
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                return false;
+            }
+            // Check latitude range: -90 to 90
+            if (lat < -90 || lat > 90) {
+                return false;
+            }
+            // Check longitude range: -180 to 180
+            if (lon < -180 || lon > 180) {
+                return false;
+            }
+            return true;
+        }
+
         // Get user's geolocation
         function fetchUserLocation() {
             return new Promise((resolve) => {
@@ -36,6 +57,12 @@
 
         // Get city name from coordinates using reverse geocoding
         async function getCityName(lat, lon) {
+            // Validate input coordinates
+            if (!validateCoordinates(lat, lon)) {
+                // Invalid coordinates (details hidden for security)
+                return 'Unknown Location';
+            }
+
             const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en`;
 
             try {
@@ -45,6 +72,12 @@
                 }
                 const data = await response.json();
 
+                // Validate response structure
+                if (!data || typeof data !== 'object' || !data.address || typeof data.address !== 'object') {
+                    // Invalid API response structure
+                    return 'Unknown Location';
+                }
+
                 // Try to get city name from various fields (city, town, village, or state)
                 return data.address.city ||
                        data.address.town ||
@@ -53,7 +86,7 @@
                        data.address.country ||
                        'Unknown Location';
             } catch (error) {
-                console.error('Failed to fetch city name:', error);
+                // Failed to fetch city name
                 return 'Unknown Location';
             }
         }
@@ -145,6 +178,12 @@
 
         // Fetch weather data from Open-Meteo API (No API key required)
         async function fetchWeatherData(lat, lon) {
+            // Validate input coordinates
+            if (!validateCoordinates(lat, lon)) {
+                // Invalid coordinates (details hidden for security)
+                return null;
+            }
+
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
@@ -154,11 +193,20 @@
                 }
                 const data = await response.json();
 
-                // Debug: Log API response structure
+                // Validate response structure
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid weather API response structure');
+                }
+                if (!data.current || typeof data.current !== 'object') {
+                    throw new Error('Missing current weather data');
+                }
+                if (!data.daily || !Array.isArray(data.daily.sunrise) || !Array.isArray(data.daily.sunset)) {
+                    throw new Error('Missing daily weather data');
+                }
 
                 // Extract cloud cover from current object
                 let cloudCover = 0;
-                if (data.current && data.current.cloud_cover !== undefined) {
+                if (data.current.cloud_cover !== undefined) {
                     cloudCover = data.current.cloud_cover;
                 }
 
@@ -173,7 +221,7 @@
                     moonPhase: calculateMoonPhase() // ユリウス日を使った計算 (0.00:新月 -> 0.50:満月 -> 1.00:新月)
                 };
             } catch (error) {
-                console.error('Failed to fetch weather data:', error);
+                // Failed to fetch weather data
                 return null;
             }
         }
@@ -257,7 +305,7 @@
                     lastWeatherUpdate = { date: now.toDateString(), hour: now.getHours() };
                 }
             } catch (error) {
-                console.error('Weather initialization failed:', error);
+                // Weather initialization failed
             }
         }
 
@@ -292,7 +340,7 @@
                     lastWeatherUpdate.hour = now.getHours();
                 }
             } catch (error) {
-                console.error('Failed to update weather:', error);
+                // Failed to update weather
             }
         }
 
@@ -862,6 +910,14 @@
     // 数学的に正確な満ち欠け計算
     // 外側の半円と内側の半楕円を組み合わせる方法
     // phase: 0 = 新月, 0.5 = 満月, 1.0 = 新月
+
+    // Validate phase input
+    if (typeof phase !== 'number' || !Number.isFinite(phase)) {
+        // Invalid moon phase value (using default)
+        phase = 0.5; // Default to full moon
+    }
+    // Clamp phase to valid range [0, 1]
+    phase = Math.max(0, Math.min(1, phase));
 
     const R = 38; // SVG内での月の半径
 
@@ -2864,7 +2920,7 @@
                         dimmerOverlay.style.opacity = s.dimmer;
                     }
                 } catch (error) {
-                    console.error('Failed to parse saved settings:', error);
+                    // Failed to parse saved settings
                     // Clear corrupted data
                     localStorage.removeItem('ambientFlowSettings');
                 }
@@ -2894,7 +2950,7 @@
                             wakeLockBtn.textContent = "Always On OFF";
                             wakeLockBtn.classList.remove('active');
                         });
-                    } catch (err) { console.error(err); }
+                    } catch (err) { /* WakeLock not supported or failed */ }
                 } else {
                     wakeLock.release();
                     wakeLock = null;
@@ -3005,6 +3061,9 @@
             if (e.target.closest('#controls')) return;
 
             if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Failed to enter fullscreen:', err);
+                });
             } else {
                 document.exitFullscreen();
             }
@@ -3084,6 +3143,7 @@
         // --- 10. Alarm Function ---
         let alarmEnabled = false;
         let alarmChecked = false;
+        let alarmInterval = null;
 
         function checkAlarm() {
             if (!alarmEnabled) return;
@@ -3106,7 +3166,17 @@
             e.target.classList.toggle('active', alarmEnabled);
 
             if (alarmEnabled) {
-                setInterval(checkAlarm, 10000); // 10秒ごとにチェック
+                // Clear existing interval before creating new one
+                if (alarmInterval) {
+                    clearInterval(alarmInterval);
+                }
+                alarmInterval = setInterval(checkAlarm, 10000); // 10秒ごとにチェック
+            } else {
+                // Clear interval when disabled
+                if (alarmInterval) {
+                    clearInterval(alarmInterval);
+                    alarmInterval = null;
+                }
             }
         });
 
@@ -3137,6 +3207,9 @@
 
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Failed to enter fullscreen:', err);
+                });
             } else {
                 document.exitFullscreen();
             }

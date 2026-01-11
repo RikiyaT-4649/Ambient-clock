@@ -35,15 +35,15 @@
         <div id="date">LOADING...</div>
 
         <!-- Weather display area -->
-        <div id="weather-display" style="margin-top: 15px; opacity: 0; transition: opacity 1s;">
-            <div id="weather-location" style="font-size: 0.9vw; opacity: 0.7; margin-bottom: 8px; letter-spacing: 0.15em; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);">
+        <div id="weather-display">
+            <div id="weather-location">
                 --
             </div>
-            <span id="weather-temp" style="font-size: 2.5vw; font-weight: 200; text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);">--°C</span>
-            <div id="weather-desc" style="font-size: 1vw; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 5px; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);">
+            <span id="weather-temp">--°C</span>
+            <div id="weather-desc">
                 Loading...
             </div>
-            <div id="sun-times" style="font-size: 0.8vw; opacity: 0.6; margin-top: 5px; letter-spacing: 0.05em;">
+            <div id="sun-times">
                 ☀️ -- | 🌙 --
             </div>
         </div>
@@ -65,7 +65,7 @@
             <div class="divider"></div>
 
             <div class="control-group">
-                <div class="icon" style="cursor: default; opacity: 0.8;">💡</div>
+                <div class="icon dimmer-icon">💡</div>
                 <input type="range" id="dimmer-range" min="0" max="0.9" step="0.01" value="0" title="Screen brightness">
             </div>
 
