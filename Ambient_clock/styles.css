@@ -1,0 +1,827 @@
+        /* --- CSS Variables (Responsive Design) --- */
+        :root {
+            /* Background colors */
+            --bg-gradient-start: #0f2027;
+            --bg-gradient-mid: #203a43;
+            --bg-gradient-end: #2c5364;
+
+            /* Clock sizes */
+            --clock-font-size: 12vw;
+            --date-font-size: 1.5vw;
+
+            /* Weather display sizes */
+            --weather-location-size: 0.9vw;
+            --weather-temp-size: 2.5vw;
+            --weather-desc-size: 1vw;
+            --weather-sun-times-size: 0.8vw;
+
+            /* Analog clock */
+            --analog-clock-size: 300px;
+            --hour-hand-width: 6px;
+            --hour-hand-height: 80px;
+            --minute-hand-width: 4px;
+            --minute-hand-height: 110px;
+            --second-hand-width: 2px;
+            --second-hand-height: 120px;
+            --clock-center-size: 16px;
+            --clock-mark-transform-origin: 150px;
+
+            /* Control panel */
+            --control-padding: 20px 40px;
+            --control-gap: 30px;
+            --control-icon-size: 24px;
+            --control-border-radius: 60px;
+            --control-bottom: 30px;
+            --slider-width: 80px;
+            --slider-height: 4px;
+            --slider-thumb-size: 14px;
+            --divider-height: 40px;
+
+            /* Buttons */
+            --btn-padding: 10px 20px;
+            --btn-border-radius: 25px;
+            --btn-font-size: 12px;
+
+            /* Celestial body (Sun/Moon) */
+            --celestial-body-size: 80px;
+
+            /* Tools panel */
+            --tools-panel-top: 30px;
+            --tools-panel-right: 30px;
+            --tools-panel-min-width: 280px;
+            --tools-panel-padding: 20px;
+            --tools-panel-border-radius: 20px;
+            --pomodoro-display-size: 32px;
+            --tool-title-size: 14px;
+            --tool-btn-padding: 8px 12px;
+            --tool-btn-font-size: 12px;
+
+            /* Shortcut hint */
+            --shortcut-hint-bottom: 30px;
+            --shortcut-hint-right: 30px;
+            --shortcut-hint-font-size: 11px;
+            --shortcut-hint-padding: 8px 16px;
+            --shortcut-hint-border-radius: 20px;
+        }
+
+        /* --- CSS --- */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Inter', sans-serif;
+            color: white;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Background area */
+        #bg-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-mid), var(--bg-gradient-end));
+            transition: background 3s ease;
+        }
+
+        /* Canvas for particle effects (stars) */
+        #particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 3; /* Stars layer - above sun/moon */
+            pointer-events: none;
+        }
+
+        /* Sky cover overlay for rainy weather */
+        #sky-cover-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #0a0e1a 0%, #141824 100%);
+            opacity: 0;
+            z-index: 4; /* Between stars (3) and clouds (5) */
+            pointer-events: none;
+            transition: opacity 2s ease;
+        }
+
+        /* Canvas for clouds */
+        #cloud-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5; /* Clouds layer (above moon/sun and stars) */
+            pointer-events: none;
+        }
+
+        /* Screen brightness adjustment overlay */
+        #dimmer-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            opacity: 0; /* Initial value is bright */
+            z-index: 8; /* Above all visual elements */
+            pointer-events: none; /* Make clicks pass through */
+            transition: opacity 0.1s;
+        }
+
+        /* Clock area */
+        #clock-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            transition: opacity 1s;
+            cursor: default;
+            z-index: 10;
+        }
+
+        #time {
+            font-size: var(--clock-font-size);
+            font-weight: 200;
+            letter-spacing: 0.05em;
+            text-shadow:
+                /* Soft floating shadow layers - creates depth */
+                0 2px 20px rgba(0, 0, 0, 0.35),
+                0 4px 40px rgba(0, 0, 0, 0.25),
+                0 8px 60px rgba(0, 0, 0, 0.15),
+                /* Gentle surrounding shadow - frame effect */
+                0 0 30px rgba(0, 0, 0, 0.4),
+                0 0 50px rgba(0, 0, 0, 0.25),
+                /* Subtle white glow - softness */
+                0 0 40px rgba(255, 255, 255, 0.15),
+                0 0 80px rgba(255, 255, 255, 0.08);
+
+            /* Important: Fixed-width numbers */
+            font-feature-settings: "tnum";
+            font-variant-numeric: tabular-nums;
+
+            /* Pure white text */
+            color: #ffffff;
+        }
+
+        #date {
+            font-size: var(--date-font-size);
+            margin-top: -10px;
+            opacity: 0.9;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            text-shadow:
+                /* Soft floating shadow */
+                0 2px 15px rgba(0, 0, 0, 0.35),
+                0 4px 30px rgba(0, 0, 0, 0.2),
+                /* Gentle surrounding shadow */
+                0 0 20px rgba(0, 0, 0, 0.3),
+                0 0 35px rgba(0, 0, 0, 0.15),
+                /* Subtle white glow */
+                0 0 25px rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+        }
+
+        /* Analog clock */
+        #analog-clock {
+            display: none;
+            width: var(--analog-clock-size);
+            height: var(--analog-clock-size);
+            position: relative;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+            border: 3px solid rgba(255,255,255,0.3);
+            box-shadow:
+                0 0 40px rgba(255, 255, 255, 0.2),
+                inset 0 0 40px rgba(0, 0, 0, 0.2);
+            margin: 0 auto;
+        }
+
+        #analog-clock.visible {
+            display: block;
+        }
+
+        .clock-center {
+            position: absolute;
+            width: var(--clock-center-size);
+            height: var(--clock-center-size);
+            background: radial-gradient(circle, #ffffff, #cccccc);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 4;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        .clock-hand {
+            position: absolute;
+            bottom: 50%;
+            left: 50%;
+            transform-origin: bottom center;
+            border-radius: 10px;
+        }
+
+        .hour-hand {
+            width: var(--hour-hand-width);
+            height: var(--hour-hand-height);
+            background: linear-gradient(to top, rgba(255,255,255,0.9), rgba(255,255,255,0.7));
+            margin-left: calc(var(--hour-hand-width) / -2);
+            z-index: 3;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        .minute-hand {
+            width: var(--minute-hand-width);
+            height: var(--minute-hand-height);
+            background: linear-gradient(to top, rgba(255,255,255,0.95), rgba(255,255,255,0.8));
+            margin-left: calc(var(--minute-hand-width) / -2);
+            z-index: 2;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+        }
+
+        .second-hand {
+            width: var(--second-hand-width);
+            height: var(--second-hand-height);
+            background: linear-gradient(to top, #ff6b6b, #ee5a6f);
+            margin-left: calc(var(--second-hand-width) / -2);
+            z-index: 1;
+            box-shadow: 0 0 15px rgba(255, 107, 107, 0.6);
+        }
+
+        .clock-number {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .clock-number span {
+            display: inline-block;
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .clock-mark {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.4);
+            left: 50%;
+            margin-left: -1px;
+            transform-origin: center var(--clock-mark-transform-origin);
+        }
+
+        /* Control panel */
+        #controls-wrapper {
+            position: absolute;
+            bottom: var(--control-bottom);
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            transition: opacity 0.8s ease, transform 0.8s ease;
+            z-index: 10;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: var(--control-padding);
+            border-radius: var(--control-border-radius);
+            display: flex;
+            gap: var(--control-gap);
+            align-items: center;
+            box-shadow:
+                0 10px 40px rgba(0,0,0,0.6),
+                0 0 60px rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.15);
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .fade-out {
+            opacity: 0;
+            transform: translateY(20px); /* Fade out downward */
+            pointer-events: none;
+        }
+
+        /* Sound and brightness controls */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .icon {
+            font-size: var(--control-icon-size);
+            cursor: pointer;
+            opacity: 0.4;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            filter: drop-shadow(0 0 0px transparent);
+        }
+        .icon:hover {
+            opacity: 0.9;
+            transform: scale(1.2) rotate(5deg);
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+        }
+        .icon.active {
+            opacity: 1;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.6));
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* Slider customization */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: var(--slider-width);
+            height: var(--slider-height);
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        input[type="range"]:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: var(--slider-thumb-size);
+            height: var(--slider-thumb-size);
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ffffff, #e0e0e0);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.4);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+        }
+
+        .divider { width: 1px; height: var(--divider-height); background: rgba(255,255,255,0.1); }
+
+        /* Switch button */
+        .btn-text {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: rgba(255,255,255,0.7);
+            padding: var(--btn-padding);
+            border-radius: var(--btn-border-radius);
+            cursor: pointer;
+            font-size: var(--btn-font-size);
+            font-weight: 500;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            box-shadow: 0 0 0 rgba(255,255,255,0);
+        }
+        .btn-text:hover {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border-color: rgba(255,255,255,0.5);
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(255,255,255,0.2);
+        }
+        .btn-text.active {
+            background: linear-gradient(135deg, #ffffff, #e0e0e0);
+            color: #000;
+            border-color: white;
+            font-weight: bold;
+            transform: scale(1.02);
+            box-shadow: 0 0 30px rgba(255,255,255,0.5);
+        }
+
+        /* Sun and Moon */
+        #celestial-body {
+            position: absolute;
+            width: var(--celestial-body-size);
+            height: var(--celestial-body-size);
+            border-radius: 50%;
+            z-index: 2; /* Above background, behind stars and clouds */
+            transition: all 3s ease;
+            pointer-events: none;
+        }
+
+        #celestial-body.sun {
+            background: radial-gradient(circle, #ffffff 0%, #fffef8 30%, #fffbf0 70%, #fff8e1 100%);
+            box-shadow:
+                0 0 40px rgba(255, 255, 255, 0.9),
+                0 0 80px rgba(255, 252, 240, 0.6),
+                0 0 120px rgba(255, 248, 220, 0.4);
+        }
+
+        /* 太陽の日暈（ハロー）- 薄い光の輪 */
+        /* 朝〜午前・午後の時間帯のみ表示 */
+        #celestial-body.sun.show-halo::after {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            filter: blur(20px);
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        #celestial-body.moon {
+            background: radial-gradient(circle, #ffffff 0%, #e8eaf6 50%, #c5cae9 100%);
+            box-shadow:
+                0 0 30px rgba(255, 255, 255, 0.6),
+                0 0 60px rgba(197, 202, 233, 0.4),
+                inset -10px -10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Tools panel (Pomodoro and Alarm) */
+        #tools-panel {
+            position: absolute;
+            top: var(--tools-panel-top);
+            right: var(--tools-panel-right);
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-radius: var(--tools-panel-border-radius);
+            padding: var(--tools-panel-padding);
+            min-width: var(--tools-panel-min-width);
+            z-index: 15;
+            border: 1px solid rgba(255,255,255,0.1);
+            opacity: 0;
+            transform: translateX(350px);
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            pointer-events: none;
+        }
+
+        #tools-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
+        }
+
+        .tool-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .tool-section:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .tool-title {
+            font-size: var(--tool-title-size);
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: rgba(255,255,255,0.9);
+            letter-spacing: 0.05em;
+        }
+
+        .pomodoro-display {
+            font-size: var(--pomodoro-display-size);
+            font-weight: 200;
+            text-align: center;
+            margin: 15px 0;
+            font-feature-settings: "tnum";
+            font-variant-numeric: tabular-nums;
+            color: #fff;
+        }
+
+        .pomodoro-status {
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 10px;
+        }
+
+        .tool-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .tool-btn {
+            flex: 1;
+            padding: var(--tool-btn-padding);
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            color: rgba(255,255,255,0.8);
+            font-size: var(--tool-btn-font-size);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tool-btn:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.4);
+        }
+
+        .tool-btn.active {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: rgba(76, 175, 80, 0.6);
+            color: #4CAF50;
+        }
+
+        .alarm-input {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #fff;
+            font-size: 14px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .alarm-input:focus {
+            outline: none;
+            border-color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.15);
+        }
+
+        .shortcut-hint {
+            position: absolute;
+            bottom: var(--shortcut-hint-bottom);
+            right: var(--shortcut-hint-right);
+            background: rgba(0, 0, 0, 0.5);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            padding: var(--shortcut-hint-padding);
+            border-radius: var(--shortcut-hint-border-radius);
+            font-size: var(--shortcut-hint-font-size);
+            color: rgba(255,255,255,0.5);
+            z-index: 15;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .shortcut-hint.show {
+            opacity: 1;
+        }
+
+        /* ========== RESPONSIVE DESIGN - Media Queries ========== */
+
+        /* Tablet (768px and below) */
+        @media screen and (max-width: 768px) {
+            :root {
+                --clock-font-size: 15vw;
+                --date-font-size: 3vw;
+                --weather-location-size: 2vw;
+                --weather-temp-size: 5vw;
+                --weather-desc-size: 2vw;
+                --weather-sun-times-size: 1.5vw;
+
+                --analog-clock-size: 250px;
+                --hour-hand-height: 65px;
+                --minute-hand-height: 90px;
+                --second-hand-height: 100px;
+                --clock-mark-transform-origin: 125px;
+
+                --control-padding: 15px 25px;
+                --control-gap: 20px;
+                --control-icon-size: 20px;
+                --control-border-radius: 40px;
+                --control-bottom: 20px;
+                --slider-width: 60px;
+
+                --btn-padding: 8px 15px;
+                --btn-font-size: 11px;
+
+                --celestial-body-size: 60px;
+
+                --tools-panel-top: 15px;
+                --tools-panel-right: 15px;
+                --tools-panel-min-width: 240px;
+                --tools-panel-padding: 15px;
+                --tool-title-size: 13px;
+                --pomodoro-display-size: 28px;
+
+                --shortcut-hint-bottom: 15px;
+                --shortcut-hint-right: 15px;
+                --shortcut-hint-font-size: 10px;
+                --shortcut-hint-padding: 6px 12px;
+            }
+        }
+
+        /* Smartphone Portrait (480px and below) */
+        @media screen and (max-width: 480px) and (orientation: portrait) {
+            :root {
+                --clock-font-size: 18vw;
+                --date-font-size: 4vw;
+                --weather-location-size: 3vw;
+                --weather-temp-size: 8vw;
+                --weather-desc-size: 3.5vw;
+                --weather-sun-times-size: 2.5vw;
+
+                --analog-clock-size: 200px;
+                --hour-hand-width: 5px;
+                --hour-hand-height: 50px;
+                --minute-hand-width: 3px;
+                --minute-hand-height: 70px;
+                --second-hand-height: 80px;
+                --clock-center-size: 12px;
+                --clock-mark-transform-origin: 100px;
+
+                --control-padding: 12px 20px;
+                --control-gap: 15px;
+                --control-icon-size: 18px;
+                --control-border-radius: 30px;
+                --control-bottom: 15px;
+                --slider-width: 50px;
+                --slider-height: 6px;
+                --slider-thumb-size: 18px;
+                --divider-height: 30px;
+
+                --btn-padding: 6px 12px;
+                --btn-border-radius: 20px;
+                --btn-font-size: 10px;
+
+                --celestial-body-size: 50px;
+
+                --tools-panel-top: 10px;
+                --tools-panel-right: 10px;
+                --tools-panel-min-width: auto;
+                --tools-panel-padding: 12px;
+                --tools-panel-border-radius: 15px;
+                --pomodoro-display-size: 24px;
+                --tool-title-size: 12px;
+                --tool-btn-padding: 6px 10px;
+                --tool-btn-font-size: 11px;
+
+                --shortcut-hint-font-size: 0px;
+            }
+
+            /* Additional styles for portrait mode */
+            #controls {
+                flex-wrap: wrap;
+            }
+
+            .divider {
+                display: none;
+            }
+
+            #tools-panel {
+                left: 10px;
+                right: 10px;
+                width: calc(100% - 20px);
+                min-width: unset;
+            }
+
+            .shortcut-hint {
+                display: none;
+            }
+
+            .icon {
+                min-width: 44px;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .tool-btn, .btn-text {
+                min-height: 44px;
+            }
+        }
+
+        /* Smartphone Landscape (Height 480px and below) */
+        @media screen and (max-height: 480px) and (orientation: landscape) {
+            :root {
+                --clock-font-size: 10vw;
+                --date-font-size: 2vw;
+                --weather-location-size: 1.5vw;
+                --weather-temp-size: 4vw;
+                --weather-desc-size: 1.8vw;
+                --weather-sun-times-size: 1.3vw;
+
+                --analog-clock-size: 150px;
+                --hour-hand-width: 4px;
+                --hour-hand-height: 40px;
+                --minute-hand-width: 3px;
+                --minute-hand-height: 55px;
+                --second-hand-height: 60px;
+                --clock-center-size: 10px;
+                --clock-mark-transform-origin: 75px;
+
+                --control-padding: 8px 15px;
+                --control-gap: 12px;
+                --control-icon-size: 16px;
+                --control-border-radius: 25px;
+                --control-bottom: 10px;
+                --slider-width: 50px;
+                --slider-height: 6px;
+                --slider-thumb-size: 16px;
+                --divider-height: 30px;
+
+                --btn-padding: 5px 10px;
+                --btn-border-radius: 18px;
+                --btn-font-size: 9px;
+
+                --celestial-body-size: 40px;
+
+                --tools-panel-top: 10px;
+                --tools-panel-right: 10px;
+                --tools-panel-min-width: 200px;
+                --tools-panel-padding: 10px;
+                --tools-panel-border-radius: 15px;
+                --pomodoro-display-size: 20px;
+                --tool-title-size: 11px;
+                --tool-btn-padding: 5px 8px;
+                --tool-btn-font-size: 10px;
+            }
+
+            /* Additional styles for landscape mode */
+            #weather-display {
+                margin-top: 8px !important;
+            }
+
+            #controls {
+                padding: var(--control-padding);
+            }
+
+            .icon {
+                min-width: 36px;
+                min-height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            #tools-panel {
+                max-height: calc(100vh - 20px);
+                overflow-y: auto;
+            }
+
+            .tool-section {
+                margin-bottom: 12px;
+                padding-bottom: 12px;
+            }
+
+            .pomodoro-display {
+                margin: 8px 0;
+            }
+
+            .pomodoro-status {
+                font-size: 10px;
+                margin-bottom: 6px;
+            }
+
+            .alarm-input {
+                padding: 5px 8px;
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+
+            .shortcut-hint {
+                display: none;
+            }
+        }
+
+        /* Small Smartphone Portrait (375px and below) */
+        @media screen and (max-width: 375px) and (orientation: portrait) {
+            :root {
+                --clock-font-size: 20vw;
+                --control-padding: 10px 15px;
+                --control-gap: 10px;
+                --control-icon-size: 16px;
+                --slider-width: 45px;
+            }
+        }
+
