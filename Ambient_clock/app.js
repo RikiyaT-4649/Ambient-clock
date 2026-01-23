@@ -607,10 +607,10 @@
                     { time: Math.floor((sunriseMinutes + sunsetMinutes) / 2), colors: ['#1d4ed8', '#0ea5e9', '#f0f9ff'] }, // 正午 - ロイヤルブルー→スカイブルー→白いシアン
                     { time: sunsetMinutes - 120, colors: ['#1e40af', '#38bdf8', '#f0f9ff'] },              // 午後早め
                     { time: sunsetMinutes - 60, colors: ['#64748b', '#fbbf24', '#fed7aa'] },               // 黄昏 - スレートブルー→ハニーゴールド→ペールピーチ
-                    { time: sunsetMinutes - 30, colors: ['#475569', '#f59e0b', '#fecaca'] },               // 夕方 - 黄金色のノスタルジー
+                    { time: sunsetMinutes - 10, colors: ['#475569', '#f59e0b', '#fecaca'] },               // 夕方 - 黄金色のノスタルジー
                     { time: sunsetMinutes, colors: ['#312e81', '#b91c1c', '#7c3aed'] },                    // 残照前 - インディゴ→ルビーレッド→紫
-                    { time: sunsetMinutes + 30, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] },               // 日没 - 燃え尽きる情熱
-                    { time: sunsetMinutes + 60, colors: ['#312e81', '#581c87', '#3b0764'] },               // 宵 - 深い紫の世界
+                    { time: sunsetMinutes + 10, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] },               // 日没 - 燃え尽きる情熱
+                    { time: sunsetMinutes + 30, colors: ['#312e81', '#581c87', '#3b0764'] },               // 宵 - 深い紫の世界
                     { time: sunsetMinutes + 120, colors: ['#1a1a2e', '#0a0a1a', '#000000'] },              // 夜 - 真っ黒へ
                     { time: 24 * 60, colors: ['#000000', '#0a0a1a', '#000000'] },                          // 深夜（つなぎ）
                 ];
@@ -628,8 +628,8 @@
                     { time: 17 * 60 + 30, colors: ['#64748b', '#fbbf24', '#fed7aa'] },    // 黄昏 - スレートブルー→ハニーゴールド→ペールピーチ
                     { time: 18 * 60, colors: ['#475569', '#f59e0b', '#fecaca'] },    // 夕方 - 黄金色のノスタルジー
                     { time: 18 * 60 + 30, colors: ['#312e81', '#b91c1c', '#7c3aed'] },    // 残照前 - インディゴ→ルビーレッド→紫
-                    { time: 19 * 60, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] }, // 日没 - 燃え尽きる情熱
-                    { time: 20 * 60, colors: ['#312e81', '#581c87', '#3b0764'] },    // 宵 - 深い紫の世界
+                    { time: 18 * 60 + 40, colors: ['#4c1d95', '#b91c1c', '#6b21a8'] }, // 日没 - 燃え尽きる情熱
+                    { time: 18 * 60 + 50, colors: ['#312e81', '#581c87', '#3b0764'] },    // 宵 - 深い紫の世界
                     { time: 22 * 60, colors: ['#1a1a2e', '#0a0a1a', '#000000'] },    // 夜 - 真っ黒へ
                     { time: 24 * 60, colors: ['#000000', '#0a0a1a', '#000000'] },    // つなぎ - 真っ黒
                 ];
