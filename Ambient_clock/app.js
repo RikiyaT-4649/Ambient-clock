@@ -1211,22 +1211,9 @@
                         this.isCatalogStar = false;
                     }
 
-                    // Multi-layered twinkling speeds for complex patterns (same for all stars)
-                    this.twinkleSpeed1 = Math.random() * 0.015 + 0.005; // Slow wave
-                    this.twinkleSpeed2 = Math.random() * 0.03 + 0.01;   // Medium wave
-                    this.twinkleSpeed3 = Math.random() * 0.05 + 0.02;   // Fast wave
-                    this.twinklePhase1 = Math.random() * Math.PI * 2;
-                    this.twinklePhase2 = Math.random() * Math.PI * 2;
-                    this.twinklePhase3 = Math.random() * Math.PI * 2;
-
-                    // Pulse effect (occasional bright flash)
-                    this.pulseTimer = Math.random() * 500 + 300; // Next pulse in 3-8 seconds
-                    this.isPulsing = false;
-                    this.pulsePhase = 0;
-
-                    // Shimmer effect
-                    this.shimmerOffset = Math.random() * Math.PI * 2;
-                    this.shimmerSpeed = Math.random() * 0.02 + 0.01;
+                    // Single wave twinkling for performance (simplified from 3 waves)
+                    this.twinkleSpeed = Math.random() * 0.03 + 0.01;
+                    this.twinklePhase = Math.random() * Math.PI * 2;
                 } else {
                     this.twinkleSpeed = Math.random() * 0.02 + 0.01;
                     this.twinklePhase = Math.random() * Math.PI * 2;
@@ -1269,43 +1256,19 @@
 
             update() {
                 if (this.type === 'star') {
-                    // Multi-layered twinkling for realistic effect
-                    this.twinklePhase1 += this.twinkleSpeed1;
-                    this.twinklePhase2 += this.twinkleSpeed2;
-                    this.twinklePhase3 += this.twinkleSpeed3;
-                    this.shimmerOffset += this.shimmerSpeed;
+                    // Single wave twinkling for performance (simplified)
+                    this.twinklePhase += this.twinkleSpeed;
 
                     // Reduce twinkle amplitude for bright stars to prevent excessive brightness
                     const brightnessAdjustment = this.baseBrightness > 0.8 ? 0.6 : 1.0;
 
-                    // Combine multiple sine waves for complex twinkling pattern
-                    const wave1 = Math.sin(this.twinklePhase1) * 0.3 * brightnessAdjustment;
-                    const wave2 = Math.sin(this.twinklePhase2) * 0.2 * brightnessAdjustment;
-                    const wave3 = Math.sin(this.twinklePhase3) * 0.15 * brightnessAdjustment;
-                    const shimmer = Math.sin(this.shimmerOffset) * 0.1 * brightnessAdjustment;
+                    // Single sine wave for twinkling
+                    const wave = Math.sin(this.twinklePhase) * 0.4 * brightnessAdjustment;
 
-                    // Base opacity with multi-wave modulation
-                    let brightness = this.baseBrightness + wave1 + wave2 + wave3 + shimmer;
+                    // Base opacity with single wave modulation
+                    let brightness = this.baseBrightness + wave;
 
-                    // Pulse effect (occasional bright flash) - also reduced for bright stars
-                    this.pulseTimer--;
-                    if (this.pulseTimer <= 0 && !this.isPulsing) {
-                        this.isPulsing = true;
-                        this.pulsePhase = 0;
-                        this.pulseTimer = Math.random() * 500 + 300; // Reset timer for next pulse
-                    }
-
-                    if (this.isPulsing) {
-                        this.pulsePhase += 0.08;
-                        const pulseBrightness = Math.sin(this.pulsePhase) * 0.6 * brightnessAdjustment;
-                        brightness += pulseBrightness;
-
-                        if (this.pulsePhase >= Math.PI) {
-                            this.isPulsing = false;
-                        }
-                    }
-
-                    // Clamp brightness - slightly lower max for bright stars
+                    // Clamp brightness
                     const maxBrightness = this.baseBrightness > 0.85 ? 0.92 : 1.0;
                     this.opacity = Math.max(0.2, Math.min(maxBrightness, brightness));
 
@@ -2288,7 +2251,7 @@
             }
 
             generateFractalPath(x1, y1, x2, y2, depth) {
-                const maxDepth = 4; // Recursion depth
+                const maxDepth = 3; // Recursion depth (reduced for performance)
 
                 if (depth >= maxDepth) {
                     // Base case: Add segment
@@ -2622,10 +2585,10 @@
         let lastShootingStarTime = Date.now();
         let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
 
-        // Animation loop - 15fps target (66.67ms per frame)
+        // Animation loop - 10fps target (100ms per frame)
         let frameCount = 0;
         let lastFrameTime = performance.now();
-        const targetFrameTime = 1000 / 15; // 15fps = 66.67ms per frame
+        const targetFrameTime = 1000 / 10; // 10fps = 100ms per frame
 
         function animateParticles(currentTime) {
             requestAnimationFrame(animateParticles);
