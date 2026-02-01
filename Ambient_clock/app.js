@@ -2428,6 +2428,116 @@
 
         // ===== HIPPARCOS STAR FIELD MANAGEMENT =====
 
+        // ===== SPATIAL PARTITIONING FOR STAR FIELD OPTIMIZATION =====
+        // Divide celestial sphere into grid cells for efficient visibility culling
+        const STAR_GRID = {
+            RA_DIVISIONS: 12,    // 30° per cell
+            DEC_DIVISIONS: 6,    // 30° per cell
+            cells: null,         // Will be initialized as 2D array
+            initialized: false
+        };
+
+        // Get grid cell indices for a given RA/Dec
+        function getGridIndices(ra, dec) {
+            const raIndex = Math.floor(ra / 30) % 12;
+            const decIndex = Math.floor((dec + 90) / 30);
+            return { raIndex, decIndex: Math.min(5, Math.max(0, decIndex)) };
+        }
+
+        // Initialize the spatial grid with star data (called once)
+        function initializeStarGrid() {
+            if (STAR_GRID.initialized) return;
+            if (typeof HIPPARCOS_STARS === 'undefined' || !HIPPARCOS_STARS) return;
+
+            // Create empty grid
+            STAR_GRID.cells = [];
+            for (let ra = 0; ra < STAR_GRID.RA_DIVISIONS; ra++) {
+                STAR_GRID.cells[ra] = [];
+                for (let dec = 0; dec < STAR_GRID.DEC_DIVISIONS; dec++) {
+                    STAR_GRID.cells[ra][dec] = [];
+                }
+            }
+
+            // Populate grid with stars
+            for (const starEntry of HIPPARCOS_STARS) {
+                const ra = starEntry[0];
+                const dec = starEntry[1];
+                const { raIndex, decIndex } = getGridIndices(ra, dec);
+                STAR_GRID.cells[raIndex][decIndex].push(starEntry);
+            }
+
+            STAR_GRID.initialized = true;
+        }
+
+        // Get visible grid cells based on current LST and observer latitude
+        // Returns array of {raIndex, decIndex} for cells that might be visible
+        function getVisibleGridCells(lst, lat) {
+            const visibleCells = [];
+
+            // Convert LST (hours) to RA (degrees) - LST indicates which RA is on meridian
+            const meridianRA = (lst * 15) % 360; // 15° per hour
+
+            // Determine visible RA range (looking south, FOV ~180° horizontally)
+            // Stars within ±90° of meridian could be visible
+            const raMin = (meridianRA - 90 + 360) % 360;
+            const raMax = (meridianRA + 90) % 360;
+
+            // Determine visible Dec range based on latitude
+            // Looking south from horizon to zenith, visible Dec range is roughly:
+            // From (lat - 90) to lat (for southern horizon to zenith when looking south)
+            // But we need some margin for the full sky view
+            const decMin = Math.max(-90, lat - 90);
+            const decMax = Math.min(90, lat + 45); // Can see past zenith to north
+
+            // Find all grid cells within visible range
+            for (let raIdx = 0; raIdx < STAR_GRID.RA_DIVISIONS; raIdx++) {
+                const cellRAMin = raIdx * 30;
+                const cellRAMax = (raIdx + 1) * 30;
+
+                // Check if this RA cell is in visible range (handle wraparound)
+                let raVisible = false;
+                if (raMin <= raMax) {
+                    // Normal case: no wraparound
+                    raVisible = (cellRAMax > raMin && cellRAMin < raMax);
+                } else {
+                    // Wraparound case: raMin > raMax (e.g., 270° to 90°)
+                    raVisible = (cellRAMax > raMin || cellRAMin < raMax);
+                }
+
+                if (!raVisible) continue;
+
+                for (let decIdx = 0; decIdx < STAR_GRID.DEC_DIVISIONS; decIdx++) {
+                    const cellDecMin = decIdx * 30 - 90;
+                    const cellDecMax = (decIdx + 1) * 30 - 90;
+
+                    // Check if this Dec cell is in visible range
+                    if (cellDecMax > decMin && cellDecMin < decMax) {
+                        visibleCells.push({ raIndex: raIdx, decIndex: decIdx });
+                    }
+                }
+            }
+
+            return visibleCells;
+        }
+
+        // Get stars from visible grid cells only
+        function getStarsFromVisibleCells(lst, lat) {
+            if (!STAR_GRID.initialized) {
+                initializeStarGrid();
+            }
+            if (!STAR_GRID.cells) return HIPPARCOS_STARS; // Fallback
+
+            const visibleCells = getVisibleGridCells(lst, lat);
+            const stars = [];
+
+            for (const cell of visibleCells) {
+                const cellStars = STAR_GRID.cells[cell.raIndex][cell.decIndex];
+                stars.push(...cellStars);
+            }
+
+            return stars;
+        }
+
         // Draw star labels for bright stars (mag ≤ 1.5)
         function drawStarLabels() {
             if (!showStarLabels || currentParticleType !== 'star' || catalogStars.length === 0) {
@@ -2464,6 +2574,7 @@
 
         // Convert Hipparcos catalog to real-time positioned stars
         // This function runs every 60 seconds to update star positions
+        // Uses spatial partitioning to reduce coordinate transformation calculations
         function createCatalogStars() {
             if (typeof HIPPARCOS_STARS === 'undefined' || !HIPPARCOS_STARS || HIPPARCOS_STARS.length === 0) {
                 // HIPPARCOS_STARS not loaded, using fallback
@@ -2474,9 +2585,12 @@
             const { lat, lon } = weatherState.coords;
             const lst = calculateLST(now, lon);
 
+            // Get only stars from potentially visible grid cells (spatial partitioning optimization)
+            const candidateStars = getStarsFromVisibleCells(lst, lat);
+
             const visibleStars = [];
 
-            for (const starEntry of HIPPARCOS_STARS) {
+            for (const starEntry of candidateStars) {
                 const ra = starEntry[0];
                 const dec = starEntry[1];
                 const mag = starEntry[2];
