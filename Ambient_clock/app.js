@@ -844,6 +844,7 @@
                 celestialBody.style.boxShadow = sunShadow;
                 celestialBody.style.filter = sunFilter;
                 celestialBody.style.clipPath = sunClipPath;
+                celestialBody.style.transform = 'none'; // Reset moon rotation
 
                 // 位置の微調整（サイズ変更に対応）
                 celestialBody.style.left = (x - (sunSize - 80) / 2) + 'px';
@@ -905,11 +906,13 @@
                 const moonRotation = (moonProgress - 0.5) * 60; // -30° to +30°
 
                 // 月の見た目を生成する関数
-                celestialBody.innerHTML = getMoonSVG(phase, moonRotation);
+                celestialBody.innerHTML = getMoonSVG(phase);
 
                 // 背景色と影をリセット（SVGで描くため、CSSの円は透明にする）
                 celestialBody.style.background = 'transparent';
                 celestialBody.style.boxShadow = 'none'; // CSSの影は消してSVGのglowを使う
+                // Apply rotation to celestialBody element directly (CSP-compliant)
+                celestialBody.style.transform = `rotate(${moonRotation}deg)`;
             }
         }
 
@@ -919,6 +922,7 @@
     // 外側の半円と内側の半楕円を組み合わせる方法
     // phase: 0 = 新月, 0.5 = 満月, 1.0 = 新月
     // rotation: 月の傾き（度）、moonProgressに基づいて計算
+    // Note: rotation is now applied via celestialBody.style.transform (CSP-compliant)
 
     // Validate phase input
     if (typeof phase !== 'number' || !Number.isFinite(phase)) {
@@ -928,12 +932,6 @@
     // Clamp phase to valid range [0, 1]
     phase = Math.max(0, Math.min(1, phase));
 
-    // Validate and clamp rotation (-90° to 90°)
-    if (typeof rotation !== 'number' || !Number.isFinite(rotation)) {
-        rotation = 0;
-    }
-    rotation = Math.max(-90, Math.min(90, rotation));
-
     const R = 38; // SVG内での月の半径
 
     // 楕円の水平半径: rx = R * cos(2π * phase)
@@ -941,26 +939,12 @@
 
     // 新月の場合（ほぼ見えない）
     if (phase < 0.02 || phase > 0.98) {
-        return `<div style="width:80px; height:80px; border-radius:50%; border:1px solid rgba(255,255,255,0.1); transform: rotate(${rotation}deg);"></div>`;
+        return `<div class="moon-new"></div>`;
     }
 
     // 満月の場合（完全な円）
     if (Math.abs(phase - 0.5) < 0.02) {
-        return `
-        <div style="
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            overflow: hidden;
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3), 0 0 40px rgba(255, 255, 255, 0.15);
-            transform: rotate(${rotation}deg);
-        ">
-            <img src="moon.jpg" style="
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
-            " />
-        </div>`;
+        return `<div class="moon-full-container"><img src="moon.jpg" class="moon-full-img" /></div>`;
     }
 
     // 満ち欠けの描画
@@ -983,7 +967,7 @@
     const clipId = `moonClip${Math.random().toString(36).slice(2, 11)}`;
 
     return `
-    <svg width="80" height="80" viewBox="0 0 80 80" style="filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.12)); transform: rotate(${rotation}deg);">
+    <svg class="moon-phase-svg" width="80" height="80" viewBox="0 0 80 80">
         <defs>
             <clipPath id="${clipId}">
                 <path d="${clipPath}" />

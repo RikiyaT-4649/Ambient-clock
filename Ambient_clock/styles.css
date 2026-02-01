@@ -468,6 +468,32 @@
                 inset -10px -10px 20px rgba(0, 0, 0, 0.1);
         }
 
+        /* Moon phase styles (CSP-compliant, no inline styles) */
+        .moon-new {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .moon-full-container {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3), 0 0 40px rgba(255, 255, 255, 0.15);
+        }
+
+        .moon-full-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .moon-phase-svg {
+            filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.12));
+        }
+
         /* Tools panel (Pomodoro and Alarm) */
         #tools-panel {
             position: absolute;
