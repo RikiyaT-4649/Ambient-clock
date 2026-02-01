@@ -368,6 +368,7 @@
 
         // --- 2. Clock Logic + Time of Day System ---
         let isAnalogClock = false;
+        let lastUpdateMinute = -1; // 前回更新した分を記録
 
         function updateClock() {
             const now = new Date();
@@ -383,10 +384,15 @@
                 updateAnalogClock(now);
             }
 
-            // 時間帯に応じた背景を更新
-            updateTimeOfDay(now.getHours(), now.getMinutes());
-            // 太陽・月の位置を更新
-            updateCelestialBody(now.getHours(), now.getMinutes());
+            // 背景と天体の更新は1分ごとに実行（チカチカ防止）
+            const currentMinute = now.getMinutes();
+            if (currentMinute !== lastUpdateMinute) {
+                lastUpdateMinute = currentMinute;
+                // 時間帯に応じた背景を更新
+                updateTimeOfDay(now.getHours(), now.getMinutes());
+                // 太陽・月の位置を更新
+                updateCelestialBody(now.getHours(), now.getMinutes());
+            }
         }
 
         function updateAnalogClock(now) {
