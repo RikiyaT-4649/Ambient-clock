@@ -2511,7 +2511,10 @@
                 });
             }
 
-            return visibleStars;
+            // 6. Sort by magnitude (brightest first) and limit to 200 stars
+            visibleStars.sort((a, b) => a.mag - b.mag);
+            const maxStars = 200;
+            return visibleStars.slice(0, maxStars);
         }
 
         // Load and display catalog stars on night scenes
