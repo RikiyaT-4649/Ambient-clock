@@ -195,7 +195,7 @@ const HIPPARCOS_STARS = [
  * 天の川に沿った高密度エリアと、空全体のランダムな星を組み合わせて配置します。
  */
 (function generateRichStarField() {
-    const totalFaintStars = 2000; // 星の総数
+    const totalFaintStars = 214; // 星の総数（固定の明るい星186個と合わせて約400個）
     
     // 星の色（スペクトル型に基づくリアルな色分布）
     const spectralColors = [
