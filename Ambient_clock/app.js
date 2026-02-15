@@ -8,6 +8,8 @@
             moonPhase: 0.5,
             sunrise: null,          // Sunrise time
             sunset: null,           // Sunset time
+            sunriseMs: null,        // Cached: sunrise as milliseconds timestamp
+            sunsetMs: null,         // Cached: sunset as milliseconds timestamp
             city: null,             // City name
             coords: { lat: 35.6762, lon: 139.6503 } // Tokyo fallback
         };
@@ -118,14 +120,14 @@
             // 100mm/h → ~1000 particles (extreme rainfall)
 
             const baseCount = 10;
-            const multiplier = 330;
+            const multiplier = 165; // Halved for performance (was 330)
             const offset = 0.1;  // Prevents log of very small values
             const factor = 10;
 
-            const particles = baseCount + multiplier * Math.log10((precipitationRate + offset) * factor);
+            const count = baseCount + multiplier * Math.log10((precipitationRate + offset) * factor);
 
-            // Clamp between minimum and maximum values
-            return Math.max(10, Math.min(1000, Math.round(particles)));
+            // Clamp between minimum and maximum values (max 500, was 1000)
+            return Math.max(10, Math.min(500, Math.round(count)));
         }
 
         // Calculate Julian Day Number from a Date object
@@ -283,6 +285,8 @@
                     weatherState.moonPhase = weather.moonPhase;
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
+                    weatherState.sunriseMs = weather.sunrise ? new Date(weather.sunrise).getTime() : null;
+                    weatherState.sunsetMs = weather.sunset ? new Date(weather.sunset).getTime() : null;
 
 
                     // Update UI
@@ -327,6 +331,8 @@
                     weatherState.moonPhase = weather.moonPhase;
                     weatherState.sunrise = weather.sunrise;
                     weatherState.sunset = weather.sunset;
+                    weatherState.sunriseMs = weather.sunrise ? new Date(weather.sunrise).getTime() : null;
+                    weatherState.sunsetMs = weather.sunset ? new Date(weather.sunset).getTime() : null;
 
 
                     // Update UI
@@ -691,13 +697,12 @@
         // Calculate solar progress (0.0 = sunrise, 1.0 = sunset, -1 = night)
         function getSolarProgress() {
             const now = Date.now();
-            const { sunrise, sunset } = weatherState;
+            const { sunriseMs, sunsetMs } = weatherState;
 
-            // If no data available yet, estimate based on time (6:00-18:00)
-            if (!sunrise || !sunset) {
-                const currentHour = new Date().getHours();
-                const currentMinute = new Date().getMinutes();
-                const timeInMinutes = currentHour * 60 + currentMinute;
+            // If no cached timestamps, estimate based on time (6:00-18:00)
+            if (sunriseMs === null || sunsetMs === null) {
+                const d = new Date(now);
+                const timeInMinutes = d.getHours() * 60 + d.getMinutes();
                 const sunriseMinutes = 6 * 60; // 6:00 AM
                 const sunsetMinutes = 18 * 60; // 6:00 PM
 
@@ -708,34 +713,28 @@
                 }
             }
 
-            const sunriseTime = new Date(sunrise).getTime();
-            const sunsetTime = new Date(sunset).getTime();
-
-            if (now >= sunriseTime && now <= sunsetTime) {
+            if (now >= sunriseMs && now <= sunsetMs) {
                 // Daytime: 0.0 (sunrise) to 1.0 (sunset)
-                return (now - sunriseTime) / (sunsetTime - sunriseTime);
+                return (now - sunriseMs) / (sunsetMs - sunriseMs);
             } else {
                 // Night time
                 return -1;
             }
         }
 
-        // Check if it's nighttime based on actual sunrise/sunset times
+        // Check if it's nighttime based on cached sunrise/sunset timestamps
         function isNighttime() {
-            const { sunrise, sunset } = weatherState;
+            const { sunriseMs, sunsetMs } = weatherState;
 
-            // If no data available yet, use fixed time (20:00-05:00)
-            if (!sunrise || !sunset) {
+            // If no cached timestamps, use fixed time (20:00-05:00)
+            if (sunriseMs === null || sunsetMs === null) {
                 const hour = new Date().getHours();
                 return hour >= 20 || hour < 5;
             }
 
             const now = Date.now();
-            const sunriseTime = new Date(sunrise).getTime();
-            const sunsetTime = new Date(sunset).getTime();
-
             // Night is after sunset or before sunrise
-            return now < sunriseTime || now > sunsetTime;
+            return now < sunriseMs || now > sunsetMs;
         }
 
         // Update sun and moon position and display (using actual sunrise/sunset times)
@@ -972,6 +971,19 @@
     // ユニークなclipPath IDを生成
     const clipId = `moonClip${Math.random().toString(36).slice(2, 11)}`;
 
+    // Earthshine: faint glow on the dark side of crescent moon
+    // Visible when moon is a thin crescent (phase 0.05-0.25 or 0.75-0.95)
+    let earthshineEl = '';
+    const isCrescent = (phase > 0.02 && phase < 0.25) || (phase > 0.75 && phase < 0.98);
+    if (isCrescent) {
+        // Intensity peaks at thinnest crescent, fades toward quarter moon
+        const distFromNew = phase < 0.5 ? phase : (1 - phase);
+        const earthshineOpacity = Math.max(0, 0.12 - (distFromNew - 0.02) * 0.5);
+        if (earthshineOpacity > 0.01) {
+            earthshineEl = `<circle cx="40" cy="40" r="37" fill="rgba(100, 120, 150, ${earthshineOpacity.toFixed(3)})" />`;
+        }
+    }
+
     return `
     <svg class="moon-phase-svg" width="80" height="80" viewBox="0 0 80 80">
         <defs>
@@ -979,6 +991,7 @@
                 <path d="${clipPath}" />
             </clipPath>
         </defs>
+        ${earthshineEl}
         <image href="moon.jpg" x="1" y="1" width="78" height="78" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />
     </svg>`;
 }
@@ -1201,9 +1214,17 @@
                         this.isCatalogStar = false;
                     }
 
-                    // Single wave twinkling for performance (simplified from 3 waves)
-                    this.twinkleSpeed = Math.random() * 0.03 + 0.01;
+                    // Altitude factor: 0 (top/zenith) to 1 (bottom/horizon)
+                    this.altitude = canvas.height > 0 ? this.y / canvas.height : 0;
+
+                    // Altitude-dependent twinkling: low stars twinkle more (atmospheric scintillation)
+                    const altSpeedMult = 1 + this.altitude * 0.5; // 1.0x (zenith) to 1.5x (horizon)
+                    this.twinkleSpeed = (Math.random() * 0.03 + 0.01) * altSpeedMult;
                     this.twinklePhase = Math.random() * Math.PI * 2;
+                    // Amplitude multiplier stored for update() - low stars: up to 2x, high stars: 0.5x
+                    this.twinkleAmplitude = 0.5 + this.altitude * 1.5; // 0.5 (zenith) to 2.0 (horizon)
+                    // Color scintillation for low-altitude stars
+                    this.scintillationPhase = Math.random() * Math.PI * 2;
                 } else {
                     this.twinkleSpeed = Math.random() * 0.02 + 0.01;
                     this.twinklePhase = Math.random() * Math.PI * 2;
@@ -1217,45 +1238,71 @@
                     this.speedY = Math.random() * 4 + 3;
                     this.size = Math.random() * 1.5 + 1;
                     this.opacity = 1;
-                    this.tailLength = Math.random() * 60 + 40;
+                    this.tailLength = Math.random() * 120 + 180; // 3-5x longer tail
                     this.life = 1;
+                    this.trail = []; // Afterimage trail points
                 }
 
-                // Rain initialization - wider distribution and faster fall
+                // Rain initialization - wider distribution and faster fall with depth perspective
                 if (this.type === 'rain') {
+                    // Depth: 0.0 (far/background) to 1.0 (near/foreground)
+                    this.depth = Math.random();
+
                     // Wider spawn area (beyond screen edges for wind effect)
-                    this.x = Math.random() * (canvas.width + 400) - 200; // -200 to width+200
-                    this.y = Math.random() * canvas.height - canvas.height * 0.3; // Staggered start positions
-                    this.speedY = Math.random() * 8 + 12; // Much faster fall (12-20)
-                    this.speedX = Math.random() * 2 - 1; // Wider horizontal range (-1 to 1)
-                    this.size = Math.random() * 1.5 + 0.5; // Thin rain streaks
-                    this.opacity = Math.random() * 0.4 + 0.4; // 0.4-0.8
-                    this.length = Math.random() * 15 + 10; // Rain streak length
+                    this.x = Math.random() * (canvas.width + 400) - 200;
+                    this.y = Math.random() * canvas.height - canvas.height * 0.3;
+
+                    // Depth-scaled properties: near rain is faster, larger, more opaque
+                    const depthScale = 0.4 + this.depth * 0.6; // 0.4 (far) to 1.0 (near)
+                    this.speedY = (Math.random() * 8 + 12) * depthScale;
+                    this.speedX = (Math.random() * 2 - 1) * depthScale;
+                    this.size = (Math.random() * 1.8 + 0.8) * depthScale;
+                    this.opacity = (Math.random() * 0.3 + 0.3) + this.depth * 0.3; // 0.3-0.6 (far) to 0.6-0.9 (near)
+                    this.length = (Math.random() * 15 + 10) * depthScale;
                 }
 
-                // Snow initialization
+                // Snow initialization - enhanced drift with dual sine wave
                 if (this.type === 'snow') {
-                    this.speedY = Math.random() * 0.8 + 0.3; // Slower fall
-                    this.speedX = Math.random() * 0.3 - 0.15; // Gentle horizontal drift
-                    this.size = Math.random() * 3 + 2; // Slightly larger
+                    this.size = Math.random() * 3 + 2; // 2-5
+                    // Size-dependent fall speed: larger flakes fall faster
+                    const sizeFactor = (this.size - 2) / 3; // 0.0-1.0
+                    this.speedY = 0.3 + sizeFactor * 0.6 + Math.random() * 0.3;
+                    this.speedX = Math.random() * 0.3 - 0.15;
                     this.opacity = Math.random() * 0.6 + 0.4;
-                    this.driftOffset = Math.random() * Math.PI * 2; // For sine wave
+                    // Dual sine wave drift
+                    this.driftOffset = Math.random() * Math.PI * 2;
                     this.driftSpeed = Math.random() * 0.02 + 0.01;
+                    this.driftOffset2 = Math.random() * Math.PI * 2; // Second wave
+                    this.driftSpeed2 = Math.random() * 0.008 + 0.003; // Slower second wave
+                    this.driftAmp2 = Math.random() * 0.8 + 0.3; // Second wave amplitude
+                    // Occasional swirl (5% chance)
+                    this.isSwirling = Math.random() < 0.05;
+                    this.swirlPhase = Math.random() * Math.PI * 2;
+                    this.swirlSpeed = Math.random() * 0.04 + 0.02;
+                    this.swirlRadius = Math.random() * 1.5 + 0.5;
+                    // Sprite index (0-4, mapped from size 2-6)
+                    this.spriteIndex = Math.min(4, Math.max(0, Math.round(this.size) - 2));
                 }
             }
 
             update() {
                 if (this.type === 'star') {
-                    // Single wave twinkling for performance (simplified)
+                    // Altitude-dependent twinkling (simplified single wave)
                     this.twinklePhase += this.twinkleSpeed;
 
                     // Reduce twinkle amplitude for bright stars to prevent excessive brightness
                     const brightnessAdjustment = this.baseBrightness > 0.8 ? 0.6 : 1.0;
 
-                    // Single sine wave for twinkling
-                    const wave = Math.sin(this.twinklePhase) * 0.4 * brightnessAdjustment;
+                    // Single sine wave, scaled by altitude-dependent amplitude
+                    const ampFactor = (this.twinkleAmplitude || 1) * 0.25; // normalized
+                    const wave = Math.sin(this.twinklePhase) * ampFactor * brightnessAdjustment;
 
-                    // Base opacity with single wave modulation
+                    // Color scintillation for low-altitude stars (subtle R/B shift)
+                    if (this.altitude > 0.6 && this.scintillationPhase !== undefined) {
+                        this.scintillationPhase += 0.05;
+                    }
+
+                    // Base opacity with wave modulation
                     let brightness = this.baseBrightness + wave;
 
                     // Clamp brightness
@@ -1266,14 +1313,21 @@
                     this.currentSize = this.baseSize * (0.8 + this.opacity * 0.4);
 
                 } else if (this.type === 'shootingStar') {
+                    // Record trail point before moving
+                    this.trail.push({ x: this.x, y: this.y, opacity: this.opacity, time: Date.now() });
+
                     // Shooting star movement
                     this.x += this.speedX;
                     this.y += this.speedY;
                     this.life -= 0.008;
                     this.opacity = this.life;
 
-                    // Remove when off-screen
-                    if (this.life <= 0 || this.x < -100 || this.y > canvas.height + 100) {
+                    // Fade out old trail points (0.5s afterimage)
+                    const now = Date.now();
+                    this.trail = this.trail.filter(p => now - p.time < 500);
+
+                    // Remove when off-screen and trail is gone
+                    if ((this.life <= 0 || this.x < -100 || this.y > canvas.height + 100) && this.trail.length === 0) {
                         return 'remove';
                     }
                 } else if (this.type === 'snow') {
@@ -1296,7 +1350,7 @@
                     // Reset if out of bounds (bottom or sides due to wind)
                     if (this.y > canvas.height || this.x < -300 || this.x > canvas.width + 300) {
                         // Create splash effect when hitting ground (not when blown off-screen)
-                        if (this.y > canvas.height && Math.random() < 0.3) { // 30% chance to create splash
+                        if (this.y > canvas.height && Math.random() < 0.1) { // 10% chance to create splash (reduced from 30%)
                             rainSplashes.push(new RainSplash(this.x, canvas.height - 5));
                         }
                         this.reset();
@@ -1305,9 +1359,25 @@
             }
 
             draw() {
+                // Rain and snow use sprite cache — no save/restore needed
+                if (this.type === 'snow') {
+                    ctx.globalAlpha = this.opacity;
+                    const sprite = spriteCache.snow[this.spriteIndex || 0];
+                    ctx.drawImage(sprite.canvas, this.x - sprite.dim / 2, this.y - sprite.dim / 2);
+                    return;
+                }
+                if (this.type === 'rain') {
+                    ctx.globalAlpha = this.opacity;
+                    const scale = this.size * 0.9 + 0.3;
+                    const sw = spriteCache.rain.width * scale;
+                    const sh = spriteCache.rain.height * scale;
+                    ctx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
+                    return;
+                }
+
+                // Stars and shooting stars need save/restore for shadowBlur, lineCap etc.
                 ctx.save();
 
-                // Apply cloud cover effect to star visibility
                 if (this.type === 'star') {
                     // Calculate star visibility based on cloud cover
                     // 0% cloud = 100% visible, 100% cloud = 0-10% visible
@@ -1319,8 +1389,16 @@
                 }
 
                 if (this.type === 'star') {
-                    const { r, g, b } = this.starColor;
+                    let { r, g, b } = this.starColor;
                     const size = this.currentSize || this.baseSize;
+
+                    // Color scintillation for low-altitude stars (atmospheric prismatic effect)
+                    if (this.altitude > 0.6 && this.scintillationPhase !== undefined) {
+                        const scintAmount = (this.altitude - 0.6) * 25; // 0-10 color shift
+                        const scintWave = Math.sin(this.scintillationPhase);
+                        r = Math.min(255, Math.max(0, r + scintWave * scintAmount));
+                        b = Math.min(255, Math.max(0, b - scintWave * scintAmount));
+                    }
 
                     // Calculate glow multiplier based on magnitude (brighter stars = larger glow)
                     let glowMultiplier = 4; // Default glow size
@@ -1383,109 +1461,69 @@
                     }
 
                 } else if (this.type === 'shootingStar') {
-                    // Shooting star tail (gradient)
-                    const gradient = ctx.createLinearGradient(
-                        this.x, this.y,
-                        this.x - this.speedX * 0.3, this.y - this.speedY * 0.3
-                    );
-                    gradient.addColorStop(0, 'rgba(255, 255, 255, ' + this.opacity + ')');
-                    gradient.addColorStop(0.5, 'rgba(200, 220, 255, ' + (this.opacity * 0.5) + ')');
-                    gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
+                    const now = Date.now();
 
-                    // Draw tail
-                    ctx.strokeStyle = gradient;
-                    ctx.lineWidth = this.size * 2;
-                    ctx.lineCap = 'round';
-                    ctx.beginPath();
-                    ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(this.x - this.speedX * 0.3, this.y - this.speedY * 0.3);
-                    ctx.stroke();
+                    // Draw afterimage trail (fading glow from previous positions)
+                    if (this.trail.length > 1) {
+                        for (let i = 0; i < this.trail.length - 1; i++) {
+                            const p = this.trail[i];
+                            const age = (now - p.time) / 500; // 0.0 (fresh) to 1.0 (gone)
+                            const trailAlpha = (1 - age) * 0.3 * p.opacity;
+                            if (trailAlpha <= 0) continue;
+                            // Purple-tinted afterglow
+                            ctx.fillStyle = `rgba(160, 140, 220, ${trailAlpha})`;
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, this.size * (1 - age * 0.5), 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
 
-                    // Draw head (bright dot)
-                    ctx.shadowBlur = 15;
-                    ctx.shadowColor = 'rgba(255, 255, 255, ' + this.opacity + ')';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.size * 1.5, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                } else if (this.type === 'snow') {
-                    // Snow - white circle with glow
-                    ctx.shadowBlur = 8;
-                    ctx.shadowColor = 'rgba(255, 255, 255, ' + (this.opacity * 0.8) + ')';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                } else if (this.type === 'rain') {
-                    // Teardrop shape (realistic falling droplet)
-                    const windDrift = (weatherState.windSpeed || 0) * 0.3;
-                    const dropletLength = (this.speedY * 0.6) + 3; // Length of teardrop
-                    const dropletWidth = this.size * 1.8; // Width at widest point
+                    // Only draw head and tail if still alive
+                    if (this.life > 0) {
+                        // Compute tail endpoint (longer tail)
+                        const speed = Math.sqrt(this.speedX * this.speedX + this.speedY * this.speedY);
+                        const tailFactor = this.tailLength / speed;
+                        const tailEndX = this.x - this.speedX * tailFactor;
+                        const tailEndY = this.y - this.speedY * tailFactor;
 
-                    // Calculate end point with wind effect
-                    const endX = this.x + this.speedX * 0.3 + windDrift;
-                    const endY = this.y + dropletLength;
+                        // Multi-color gradient tail: white → blue-white → faint purple → transparent
+                        const gradient = ctx.createLinearGradient(this.x, this.y, tailEndX, tailEndY);
+                        gradient.addColorStop(0, `rgba(255, 255, 255, ${this.opacity})`);
+                        gradient.addColorStop(0.15, `rgba(220, 230, 255, ${this.opacity * 0.8})`);
+                        gradient.addColorStop(0.4, `rgba(160, 180, 255, ${this.opacity * 0.4})`);
+                        gradient.addColorStop(0.7, `rgba(140, 120, 200, ${this.opacity * 0.15})`);
+                        gradient.addColorStop(1, 'rgba(120, 100, 180, 0)');
 
-                    // Create teardrop shape using bezier curves
-                    ctx.beginPath();
+                        // Draw main tail
+                        ctx.strokeStyle = gradient;
+                        ctx.lineWidth = this.size * 2;
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(tailEndX, tailEndY);
+                        ctx.stroke();
 
-                    // Start at top (pointed tip)
-                    ctx.moveTo(this.x, this.y);
+                        // Draw thinner bright core along front portion
+                        const coreGrad = ctx.createLinearGradient(this.x, this.y,
+                            this.x - this.speedX * tailFactor * 0.3, this.y - this.speedY * tailFactor * 0.3);
+                        coreGrad.addColorStop(0, `rgba(255, 255, 255, ${this.opacity})`);
+                        coreGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                        ctx.strokeStyle = coreGrad;
+                        ctx.lineWidth = this.size * 0.8;
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(this.x - this.speedX * tailFactor * 0.3, this.y - this.speedY * tailFactor * 0.3);
+                        ctx.stroke();
 
-                    // Right curve (top to widest point)
-                    const rightControlX1 = this.x + dropletWidth * 0.4;
-                    const rightControlY1 = this.y + dropletLength * 0.2;
-                    const rightControlX2 = endX + dropletWidth * 0.5;
-                    const rightControlY2 = endY - dropletLength * 0.3;
-                    ctx.bezierCurveTo(rightControlX1, rightControlY1, rightControlX2, rightControlY2, endX + dropletWidth * 0.4, endY);
-
-                    // Bottom curve (rounded bottom)
-                    ctx.quadraticCurveTo(endX, endY + dropletLength * 0.05, endX - dropletWidth * 0.4, endY);
-
-                    // Left curve (widest point back to top)
-                    const leftControlX1 = endX - dropletWidth * 0.5;
-                    const leftControlY1 = endY - dropletLength * 0.3;
-                    const leftControlX2 = this.x - dropletWidth * 0.4;
-                    const leftControlY2 = this.y + dropletLength * 0.2;
-                    ctx.bezierCurveTo(leftControlX1, leftControlY1, leftControlX2, leftControlY2, this.x, this.y);
-
-                    // Fill with gradient
-                    const gradient = ctx.createLinearGradient(this.x, this.y, endX, endY);
-                    gradient.addColorStop(0, 'rgba(136, 192, 208, 0.15)');   // Transparent top
-                    gradient.addColorStop(0.3, 'rgba(136, 192, 208, 0.35)'); // Semi-transparent middle
-                    gradient.addColorStop(1, 'rgba(136, 192, 208, 0.55)');   // More opaque bottom
-
-                    ctx.fillStyle = gradient;
-                    ctx.fill();
-
-                    // Add subtle outline for definition
-                    ctx.strokeStyle = 'rgba(136, 192, 208, 0.25)';
-                    ctx.lineWidth = 0.3;
-                    ctx.stroke();
-
-                    // Add highlight for more realism (light reflection)
-                    const highlightGradient = ctx.createRadialGradient(
-                        this.x + dropletWidth * 0.15, this.y + dropletLength * 0.4, 0,
-                        this.x + dropletWidth * 0.15, this.y + dropletLength * 0.4, dropletWidth * 0.6
-                    );
-                    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
-                    highlightGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.1)');
-                    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-
-                    ctx.fillStyle = highlightGradient;
-                    ctx.beginPath();
-                    ctx.ellipse(
-                        this.x + dropletWidth * 0.15,
-                        this.y + dropletLength * 0.4,
-                        dropletWidth * 0.3,
-                        dropletLength * 0.25,
-                        Math.PI * 0.1,
-                        0,
-                        Math.PI * 2
-                    );
-                    ctx.fill();
+                        // Draw head (bright dot with glow)
+                        ctx.shadowBlur = 20;
+                        ctx.shadowColor = `rgba(200, 220, 255, ${this.opacity})`;
+                        ctx.fillStyle = '#ffffff';
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.size * 1.5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
                 }
 
                 ctx.restore();
@@ -1563,24 +1601,11 @@
             }
 
             draw() {
-                ctx.save();
+                // Sprite-cached droplet (no per-frame gradient)
                 ctx.globalAlpha = this.opacity;
-
-                // Draw droplet with motion blur
-                const gradient = ctx.createRadialGradient(
-                    this.x, this.y, 0,
-                    this.x, this.y, this.size * 2
-                );
-                gradient.addColorStop(0, 'rgba(136, 192, 208, 1)');
-                gradient.addColorStop(0.5, 'rgba(136, 192, 208, 0.6)');
-                gradient.addColorStop(1, 'rgba(136, 192, 208, 0)');
-
-                ctx.fillStyle = gradient;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.restore();
+                const dim = spriteCache.splashDroplet.width;
+                const scale = this.size * 0.5;
+                ctx.drawImage(spriteCache.splashDroplet, this.x - dim * scale / 2, this.y - dim * scale / 2, dim * scale, dim * scale);
             }
         }
 
@@ -1597,7 +1622,7 @@
 
                 // Create splash droplets (water particles flying outward)
                 this.droplets = [];
-                const dropletCount = Math.floor(Math.random() * 5) + 4; // 4-8 droplets
+                const dropletCount = Math.floor(Math.random() * 2) + 2; // 2-3 droplets (reduced from 4-8)
 
                 for (let i = 0; i < dropletCount; i++) {
                     // Angle: mostly upward and outward (60-120 degrees)
@@ -1625,30 +1650,18 @@
             }
 
             draw() {
-                ctx.save();
-
-                // Draw expanding ripple
+                // Single ripple (removed inner ripple for performance)
                 ctx.globalAlpha = this.opacity;
                 ctx.strokeStyle = '#aaddff';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
                 ctx.stroke();
 
-                // Inner ripple (secondary wave)
-                if (this.lifetime > 3) {
-                    ctx.globalAlpha = this.opacity * 0.6;
-                    ctx.strokeStyle = '#88c0d0';
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-
-                ctx.restore();
-
                 // Draw splash droplets
-                this.droplets.forEach(droplet => droplet.draw());
+                for (let i = 0; i < this.droplets.length; i++) {
+                    this.droplets[i].draw();
+                }
             }
         }
 
@@ -1981,9 +1994,16 @@
             lastCloudCheckTime: 0, // 最後に雲チェックした時間（ミリ秒）
             cachedCloudOverlapBonus: 0, // キャッシュされた雲のボーナス値
             cloudCheckInterval: 600000, // 10分 = 600,000ミリ秒
+            lastConditionCheckTime: 0, // 最後に条件チェックした時間
+            conditionCheckInterval: 60000, // 60秒に1回チェック
+            cachedIntensityMultiplier: 1.0, // キャッシュされた強度倍率
 
-            // 日暈の出現条件をチェック
-            checkConditions() {
+            // 日暈の出現条件をチェック + 太陽位置を更新（60秒に1回）
+            updateConditionsAndPosition() {
+                const now = Date.now();
+                if (now - this.lastConditionCheckTime < this.conditionCheckInterval) return;
+                this.lastConditionCheckTime = now;
+
                 const solarProgress = getSolarProgress();
                 const cloudCover = weatherState.cloudCover || 0;
                 const condition = weatherState.condition || '';
@@ -1998,12 +2018,8 @@
                 const isValidCloudCover = cloudCover >= 20 && cloudCover <= 50;
 
                 this.active = isDaytime && isValidWeather && isValidCloudCover;
-                return this.active;
-            },
 
-            // 太陽の位置を更新
-            updateSunPosition() {
-                const solarProgress = getSolarProgress();
+                // 太陽の位置を更新
                 if (solarProgress >= 0 && solarProgress <= 1) {
                     const centerX = window.innerWidth / 2;
                     const radiusX = window.innerWidth * 0.4;
@@ -2013,6 +2029,15 @@
                     this.sunX = centerX + Math.cos(Math.PI - angle) * radiusX;
                     this.sunY = window.innerHeight * 0.8 - Math.sin(angle) * radiusY;
                 }
+
+                // 朝（0.1-0.3）と夕方（0.7-0.9）で色を強調
+                if (solarProgress < 0.3) {
+                    this.cachedIntensityMultiplier = 1.3;
+                } else if (solarProgress > 0.7) {
+                    this.cachedIntensityMultiplier = 1.3;
+                } else {
+                    this.cachedIntensityMultiplier = 1.0;
+                }
             },
 
             // 日暈を描画
@@ -2021,16 +2046,7 @@
 
                 ctx.save();
 
-                // 高度な演出1: 時間による色の強調（朝夕は少し濃く）
-                const solarProgress = getSolarProgress();
-                let intensityMultiplier = 1.0;
-
-                // 朝（0.1-0.3）と夕方（0.7-0.9）で色を強調
-                if (solarProgress < 0.3) {
-                    intensityMultiplier = 1.3;
-                } else if (solarProgress > 0.7) {
-                    intensityMultiplier = 1.3;
-                }
+                const intensityMultiplier = this.cachedIntensityMultiplier;
 
                 // 高度な演出2: 雲との重なりをチェック（個々の雲の位置を確認）
                 // 軽量化: 10分に1回だけチェック、それ以外はキャッシュを使用
@@ -2203,6 +2219,29 @@
                     for (let cloud of this.layers[i]) {
                         cloud.draw(ctx);
                     }
+                }
+
+                // Tint clouds with warm colors during dawn/dusk
+                const sp = getSolarProgress();
+                let tintIntensity = 0;
+                let tintR = 255, tintG = 120, tintB = 60; // Warm amber
+
+                if (sp >= 0 && sp < 0.15) {
+                    // Dawn: pink-orange tint
+                    tintIntensity = Math.sin((sp / 0.15) * Math.PI) * 0.35;
+                    tintR = 255; tintG = 130; tintB = 80;
+                } else if (sp > 0.85 && sp <= 1) {
+                    // Dusk: deeper orange-red tint
+                    tintIntensity = Math.sin(((1 - sp) / 0.15) * Math.PI) * 0.35;
+                    tintR = 255; tintG = 100; tintB = 50;
+                }
+
+                if (tintIntensity > 0.01) {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'overlay';
+                    ctx.fillStyle = `rgba(${tintR}, ${tintG}, ${tintB}, ${tintIntensity})`;
+                    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.restore();
                 }
             },
 
@@ -2544,14 +2583,22 @@
             return stars;
         }
 
-        // Draw star labels for bright stars (mag ≤ 1.5)
-        function drawStarLabels() {
-            if (!showStarLabels || currentParticleType !== 'star' || catalogStars.length === 0) {
+        // Cached bright star labels (rebuilt when catalog updates)
+        let cachedBrightStars = [];
+
+        function updateBrightStarCache() {
+            if (catalogStars.length === 0) {
+                cachedBrightStars = [];
                 return;
             }
+            cachedBrightStars = catalogStars.filter(star => star.name && star.mag <= 1.5);
+        }
 
-            // Filter for bright stars with names (mag ≤ 1.5)
-            const brightStars = catalogStars.filter(star => star.name && star.mag <= 1.5);
+        // Draw star labels for bright stars (uses cached filter result)
+        function drawStarLabels() {
+            if (!showStarLabels || currentParticleType !== 'star' || cachedBrightStars.length === 0) {
+                return;
+            }
 
             ctx.save();
             ctx.font = '14px Inter, sans-serif';
@@ -2560,7 +2607,7 @@
             ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
             ctx.shadowBlur = 8;
 
-            for (const star of brightStars) {
+            for (const star of cachedBrightStars) {
                 // Position label slightly above the star
                 const labelX = star.x;
                 const labelY = star.y - star.size - 15;
@@ -2670,10 +2717,14 @@
                     particles.push(particle);
                 }
 
+                // Update bright star label cache
+                updateBrightStarCache();
+
             } else {
                 // Fallback to random stars if catalog fails
                 // No visible catalog stars, using random fallback
                 createParticles('star', 800);
+                cachedBrightStars = [];
             }
         }
 
@@ -2685,12 +2736,126 @@
             }
         }
 
+        // --- Sprite cache for rain, snow, and splash droplets ---
+        const spriteCache = {};
+
+        function createRainSprite() {
+            // Pre-render a rain streak as a simple gradient line
+            const w = 4, h = 28;
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const cx = c.getContext('2d');
+            const grad = cx.createLinearGradient(w / 2, 0, w / 2, h);
+            grad.addColorStop(0, 'rgba(136, 192, 208, 0.1)');
+            grad.addColorStop(0.4, 'rgba(136, 192, 208, 0.4)');
+            grad.addColorStop(1, 'rgba(136, 192, 208, 0.55)');
+            cx.fillStyle = grad;
+            cx.beginPath();
+            cx.moveTo(w / 2, 0);
+            cx.lineTo(w * 0.85, h * 0.7);
+            cx.quadraticCurveTo(w / 2, h * 1.05, w * 0.15, h * 0.7);
+            cx.closePath();
+            cx.fill();
+            return c;
+        }
+
+        function createSnowSprites() {
+            // Pre-render multiple snow sizes with glow baked in
+            const sprites = [];
+            for (let i = 0; i < 5; i++) {
+                const size = 2 + i; // 2-6 radius
+                const padding = 10;
+                const dim = (size + padding) * 2;
+                const c = document.createElement('canvas');
+                c.width = dim; c.height = dim;
+                const cx = c.getContext('2d');
+                const center = dim / 2;
+                // Glow layer
+                const glow = cx.createRadialGradient(center, center, 0, center, center, size + padding);
+                glow.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+                glow.addColorStop(0.3, 'rgba(255, 255, 255, 0.3)');
+                glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                cx.fillStyle = glow;
+                cx.beginPath();
+                cx.arc(center, center, size + padding, 0, Math.PI * 2);
+                cx.fill();
+                // Core
+                cx.fillStyle = '#ffffff';
+                cx.beginPath();
+                cx.arc(center, center, size, 0, Math.PI * 2);
+                cx.fill();
+                sprites.push({ canvas: c, size: size, dim: dim });
+            }
+            return sprites;
+        }
+
+        function createSplashDropletSprite() {
+            // Pre-render a small droplet with glow
+            const dim = 8;
+            const c = document.createElement('canvas');
+            c.width = dim; c.height = dim;
+            const cx = c.getContext('2d');
+            const center = dim / 2;
+            const grad = cx.createRadialGradient(center, center, 0, center, center, center);
+            grad.addColorStop(0, 'rgba(136, 192, 208, 1)');
+            grad.addColorStop(0.5, 'rgba(136, 192, 208, 0.5)');
+            grad.addColorStop(1, 'rgba(136, 192, 208, 0)');
+            cx.fillStyle = grad;
+            cx.beginPath();
+            cx.arc(center, center, center, 0, Math.PI * 2);
+            cx.fill();
+            return c;
+        }
+
+        // Initialize sprite cache
+        spriteCache.rain = createRainSprite();
+        spriteCache.snow = createSnowSprites();
+        spriteCache.splashDroplet = createSplashDropletSprite();
+
         // Create initial particles - full starry sky
         createParticles('star', 800);
 
         // Shooting star management
         let lastShootingStarTime = Date.now();
         let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
+
+        // --- Horizon Atmospheric Glow ---
+        function drawHorizonGlow() {
+            const solarProgress = getSolarProgress();
+            const h = canvas.height;
+            const w = canvas.width;
+            const glowHeight = h * 0.18; // Glow occupies bottom 18%
+            const y0 = h - glowHeight;
+
+            if (solarProgress >= 0 && solarProgress <= 1) {
+                // Daytime: subtle warm glow during dawn/dusk
+                let intensity = 0;
+                if (solarProgress < 0.12) {
+                    // Dawn: intensity ramps up then fades
+                    intensity = Math.sin((solarProgress / 0.12) * Math.PI) * 0.25;
+                } else if (solarProgress > 0.88) {
+                    // Dusk: intensity ramps up then fades
+                    intensity = Math.sin(((1 - solarProgress) / 0.12) * Math.PI) * 0.25;
+                }
+                if (intensity > 0.01) {
+                    const grad = ctx.createLinearGradient(0, h, 0, y0);
+                    // Warm orange-amber glow
+                    grad.addColorStop(0, `rgba(255, 140, 50, ${intensity})`);
+                    grad.addColorStop(0.4, `rgba(255, 100, 60, ${intensity * 0.4})`);
+                    grad.addColorStop(1, 'rgba(255, 80, 40, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, y0, w, glowHeight);
+                }
+            } else {
+                // Nighttime: very faint navy atmospheric glow
+                const grad = ctx.createLinearGradient(0, h, 0, y0);
+                grad.addColorStop(0, 'rgba(20, 30, 60, 0.08)');
+                grad.addColorStop(0.5, 'rgba(15, 20, 50, 0.03)');
+                grad.addColorStop(1, 'rgba(10, 15, 40, 0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, y0, w, glowHeight);
+            }
+        }
 
         // Animation loop - 10fps target (100ms per frame)
         let frameCount = 0;
@@ -2714,15 +2879,17 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             cloudCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
 
-            // NEW: Update and draw sun halo (日暈) - before clouds so clouds pass over it
-            sunHaloManager.checkConditions();
-            sunHaloManager.updateSunPosition();
+            // Atmospheric glow at horizon (drawn first, behind particles)
+            drawHorizonGlow();
+
+            // Update sun halo conditions and position (every 60s), draw if active
+            sunHaloManager.updateConditionsAndPosition();
             sunHaloManager.drawHalo(cloudCtx);
 
-            // NEW: Update cloud positions
-            cloudManager.updateClouds();
-
-            // NEW: Draw clouds on separate canvas (z-index 4, above moon/sun)
+            // Update cloud positions every 2nd frame (5fps), draw every frame
+            if (frameCount % 2 === 0) {
+                cloudManager.updateClouds();
+            }
             cloudManager.drawClouds(cloudCtx);
 
             // EXISTING: Update and draw particles (filter out those that need removal)
@@ -2749,15 +2916,18 @@
                 }
             }
 
-            // NEW: Update and draw rain splashes
-            rainSplashes = rainSplashes.filter(splash => {
-                const result = splash.update();
-                if (result !== 'remove') {
-                    splash.draw();
-                    return true;
-                }
-                return false;
-            });
+            // Update and draw rain splashes
+            if (rainSplashes.length > 0) {
+                rainSplashes = rainSplashes.filter(splash => {
+                    const result = splash.update();
+                    if (result !== 'remove') {
+                        splash.draw();
+                        return true;
+                    }
+                    return false;
+                });
+                ctx.globalAlpha = 1; // Reset after splash drawing
+            }
 
             // NEW: Update and draw lightning (ON TOP of everything)
             if (lightningManager.active) {
@@ -2792,11 +2962,11 @@
                         } else {
                             // Fallback: use weather condition if precipitation data unavailable
                             if (weatherState.condition === 'Drizzle') {
-                                rainCount = 200; // Light drizzle
+                                rainCount = 100; // Light drizzle (reduced from 200)
                             } else if (weatherState.condition === 'Thunderstorm') {
-                                rainCount = 450; // Heavy rain during storm
+                                rainCount = 250; // Heavy rain during storm (reduced from 450)
                             } else {
-                                rainCount = 350; // Moderate rain
+                                rainCount = 180; // Moderate rain (reduced from 350)
                             }
                         }
 
@@ -2946,7 +3116,7 @@
             setTimeout(() => {
                 const isRainActive = document.getElementById('btn-rain').classList.contains('active');
                 if (isRainActive) {
-                    createParticles('rain', 350); // Increased for continuous effect
+                    createParticles('rain', 180); // Reduced for performance
                 } else {
                     // When rain stops, return to time-based particles
                     const hour = new Date().getHours();
