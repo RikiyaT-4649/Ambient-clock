@@ -376,6 +376,54 @@
         let isAnalogClock = false;
         let lastUpdateMinute = -1; // 前回更新した分を記録
 
+        // Clock text breathing - subtle time-of-day color in text-shadow
+        function updateClockBreathing(hour) {
+            const timeEl = document.getElementById('time');
+            const dateEl = document.getElementById('date');
+            if (!timeEl || !dateEl) return;
+
+            // Determine glow color based on time of day
+            let glowR = 255, glowG = 255, glowB = 255; // Default: white
+            let glowIntensity = 0.15;
+
+            if (hour >= 5 && hour < 8) {
+                // Dawn: warm amber glow
+                glowR = 255; glowG = 200; glowB = 140;
+                glowIntensity = 0.2;
+            } else if (hour >= 8 && hour < 16) {
+                // Daytime: cool white-blue
+                glowR = 220; glowG = 240; glowB = 255;
+                glowIntensity = 0.12;
+            } else if (hour >= 16 && hour < 20) {
+                // Evening: warm orange
+                glowR = 255; glowG = 180; glowB = 100;
+                glowIntensity = 0.22;
+            } else {
+                // Night: cool blue
+                glowR = 140; glowG = 170; glowB = 255;
+                glowIntensity = 0.18;
+            }
+
+            const glowColor = `rgba(${glowR}, ${glowG}, ${glowB}, ${glowIntensity})`;
+            const glowColor2 = `rgba(${glowR}, ${glowG}, ${glowB}, ${glowIntensity * 0.5})`;
+
+            timeEl.style.textShadow = `
+                0 2px 20px rgba(0, 0, 0, 0.35),
+                0 4px 40px rgba(0, 0, 0, 0.25),
+                0 8px 60px rgba(0, 0, 0, 0.15),
+                0 0 30px rgba(0, 0, 0, 0.4),
+                0 0 50px rgba(0, 0, 0, 0.25),
+                0 0 40px ${glowColor},
+                0 0 80px ${glowColor2}`;
+
+            dateEl.style.textShadow = `
+                0 2px 15px rgba(0, 0, 0, 0.35),
+                0 4px 30px rgba(0, 0, 0, 0.2),
+                0 0 20px rgba(0, 0, 0, 0.3),
+                0 0 35px rgba(0, 0, 0, 0.15),
+                0 0 25px ${glowColor}`;
+        }
+
         function updateClock() {
             const now = new Date();
             const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
@@ -398,6 +446,8 @@
                 updateTimeOfDay(now.getHours(), now.getMinutes());
                 // 太陽・月の位置を更新
                 updateCelestialBody(now.getHours(), now.getMinutes());
+                // 時計テキストの呼吸（時間帯で微妙にtext-shadowの色を変化）
+                updateClockBreathing(now.getHours());
             }
         }
 
@@ -682,6 +732,28 @@
                     const boostedRgb2 = adjustSaturation(rgb2, 1.1); // +10% saturation
                     color2 = `rgb(${Math.round(boostedRgb2[0])}, ${Math.round(boostedRgb2[1])}, ${Math.round(boostedRgb2[2])})`;
                 }
+            }
+
+            // Full moon blue sky: shift deep night colors toward deep blue
+            const moonPhase = weatherState.moonPhase || 0;
+            if (isNighttime() && moonPhase >= 0.35 && moonPhase <= 0.65) {
+                // Intensity peaks at exact full moon (0.5)
+                const moonFullness = 1 - Math.abs(moonPhase - 0.5) / 0.15; // 0-1
+                const blueShift = moonFullness * 0.6; // Max 60% blend
+
+                // Blend each color toward a deep moonlit blue
+                const moonBlue1 = { r: 5, g: 5, b: 18 };   // #050512
+                const moonBlue2 = { r: 8, g: 10, b: 28 };   // #080a1c
+                const moonBlue3 = { r: 5, g: 5, b: 16 };   // #050510
+
+                const rgb1 = parseRgb(color1);
+                const rgb2 = parseRgb(color2);
+                const rgb3 = parseRgb(color3);
+
+                const blend = (a, b, t) => Math.round(a + (b - a) * t);
+                color1 = `rgb(${blend(rgb1[0], moonBlue1.r, blueShift)}, ${blend(rgb1[1], moonBlue1.g, blueShift)}, ${blend(rgb1[2], moonBlue1.b, blueShift)})`;
+                color2 = `rgb(${blend(rgb2[0], moonBlue2.r, blueShift)}, ${blend(rgb2[1], moonBlue2.g, blueShift)}, ${blend(rgb2[2], moonBlue2.b, blueShift)})`;
+                color3 = `rgb(${blend(rgb3[0], moonBlue3.r, blueShift)}, ${blend(rgb3[1], moonBlue3.g, blueShift)}, ${blend(rgb3[2], moonBlue3.b, blueShift)})`;
             }
 
             // Apply weather color blending if available
@@ -1331,13 +1403,25 @@
                         return 'remove';
                     }
                 } else if (this.type === 'snow') {
-                    // Snow movement with drift
+                    // Snow movement with enhanced dual sine wave drift
                     const windDrift = (weatherState.windSpeed || 0) * 0.05;
 
                     this.driftOffset += this.driftSpeed;
+                    this.driftOffset2 += this.driftSpeed2;
                     this.y += this.speedY;
-                    
-                    this.x += this.speedX + Math.sin(this.driftOffset) * 0.5 + windDrift;
+
+                    // Dual sine wave for organic drift
+                    let dx = this.speedX + Math.sin(this.driftOffset) * 0.5
+                           + Math.sin(this.driftOffset2) * this.driftAmp2 + windDrift;
+
+                    // Swirl motion for select snowflakes
+                    if (this.isSwirling) {
+                        this.swirlPhase += this.swirlSpeed;
+                        dx += Math.cos(this.swirlPhase) * this.swirlRadius;
+                        this.y += Math.sin(this.swirlPhase) * this.swirlRadius * 0.3; // slight vertical wobble
+                    }
+
+                    this.x += dx;
 
                     if (this.y > canvas.height) this.reset();
                 } else {
@@ -2259,7 +2343,7 @@
                 this.branches = [];
                 this.lifetime = 0;
                 this.maxLifetime = 10; // ~167ms at 60fps
-                this.flashIntensity = 0.15; // Subtle flash
+                this.flashIntensity = 0.4; // Dramatic flash
 
                 // Generate lightning path
                 if (type === 'ground') {
@@ -2386,7 +2470,7 @@
 
             activate() {
                 this.active = true;
-                this.nextStrikeTime = Date.now() + (Math.random() * 600000 + 400000); // 400-1000s (6.7-16.7 min)
+                this.nextStrikeTime = Date.now() + (Math.random() * 420000 + 180000); // 180-600s (3-10 min)
             },
 
             deactivate() {
@@ -2402,7 +2486,7 @@
                 // Check if time for new strike
                 if (now >= this.nextStrikeTime && this.activeBolts.length === 0) {
                     this.createLightning();
-                    this.nextStrikeTime = now + (Math.random() * 600000 + 400000); // 400-1000s (6.7-16.7 min)
+                    this.nextStrikeTime = now + (Math.random() * 420000 + 180000); // 180-600s (3-10 min)
                 }
 
                 // Update existing bolts
@@ -2435,6 +2519,16 @@
                         }, 300 + Math.random() * 300);
                     }
                 }
+
+                // Afterflash: dimmer re-illumination 0.3-1s after main bolt
+                setTimeout(() => {
+                    if (this.active) {
+                        const afterBolt = new LightningBolt(type);
+                        afterBolt.flashIntensity = 0.15; // Dimmer afterflash
+                        afterBolt.maxLifetime = 6; // Shorter duration
+                        this.activeBolts.push(afterBolt);
+                    }
+                }, 300 + Math.random() * 700);
             },
 
             drawLightning(ctx) {
@@ -2845,6 +2939,23 @@
                     grad.addColorStop(1, 'rgba(255, 80, 40, 0)');
                     ctx.fillStyle = grad;
                     ctx.fillRect(0, y0, w, glowHeight);
+
+                    // Radial glow centered on sun position (sunrise/sunset radiance)
+                    const centerX = w / 2;
+                    const radiusX = w * 0.4;
+                    const angle = Math.PI * solarProgress;
+                    const sunX = centerX + Math.cos(Math.PI - angle) * radiusX;
+                    const sunY = h * 0.8 - Math.sin(angle) * (h * 0.5);
+                    const glowRadius = w * 0.35;
+
+                    const radGlow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, glowRadius);
+                    const radIntensity = intensity * 1.2;
+                    radGlow.addColorStop(0, `rgba(255, 180, 100, ${radIntensity * 0.6})`);
+                    radGlow.addColorStop(0.3, `rgba(255, 140, 80, ${radIntensity * 0.3})`);
+                    radGlow.addColorStop(0.6, `rgba(255, 100, 60, ${radIntensity * 0.1})`);
+                    radGlow.addColorStop(1, 'rgba(255, 80, 40, 0)');
+                    ctx.fillStyle = radGlow;
+                    ctx.fillRect(0, 0, w, h);
                 }
             } else {
                 // Nighttime: very faint navy atmospheric glow
