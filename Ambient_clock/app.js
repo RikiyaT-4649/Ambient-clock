@@ -1086,6 +1086,7 @@
 
         window.addEventListener('mousemove', resetIdleTimer);
         window.addEventListener('click', resetIdleTimer);
+        window.addEventListener('touchstart', resetIdleTimer, { passive: true });
         resetIdleTimer();
 
 
@@ -1097,15 +1098,87 @@
         const cloudCanvas = document.getElementById('cloud-canvas');
         const cloudCtx = cloudCanvas.getContext('2d');
 
-        // Canvas size settings
+        // Sin/Cos lookup table (1024 entries, ~0.35° precision)
+        const LUT_SIZE = 1024;
+        const LUT_MASK = LUT_SIZE - 1;
+        const LUT_FACTOR = LUT_SIZE / (Math.PI * 2);
+        const _sinTable = new Float32Array(LUT_SIZE);
+        const _cosTable = new Float32Array(LUT_SIZE);
+        for (let i = 0; i < LUT_SIZE; i++) {
+            const a = (i / LUT_SIZE) * Math.PI * 2;
+            _sinTable[i] = Math.sin(a);
+            _cosTable[i] = Math.cos(a);
+        }
+        function sinLUT(rad) { return _sinTable[((rad * LUT_FACTOR) | 0) & LUT_MASK]; }
+        function cosLUT(rad) { return _cosTable[((rad * LUT_FACTOR) | 0) & LUT_MASK]; }
+
+        // Star glow sprite cache: avoids creating gradients per-star per-frame
+        const starSpriteCache = new Map();
+        function getStarSprite(r, g, b, size, glowMultiplier) {
+            // Quantize to reduce cache entries: color (5-bit), size (0.5 step), glow (int)
+            const qr = (r >> 3) << 3;
+            const qg = (g >> 3) << 3;
+            const qb = (b >> 3) << 3;
+            const qs = Math.round(size * 2) / 2;
+            const qm = Math.round(glowMultiplier);
+            const key = `${qr},${qg},${qb},${qs},${qm}`;
+            let sprite = starSpriteCache.get(key);
+            if (sprite) return sprite;
+
+            const radius = qs * qm;
+            const dim = Math.ceil(radius * 2 + 4);
+            const cx = dim / 2;
+            const c = document.createElement('canvas');
+            c.width = dim; c.height = dim;
+            const sctx = c.getContext('2d');
+
+            // Outer glow
+            const glowGrad = sctx.createRadialGradient(cx, cx, 0, cx, cx, radius);
+            glowGrad.addColorStop(0, `rgba(${qr},${qg},${qb},0.9)`);
+            glowGrad.addColorStop(0.2, `rgba(${qr},${qg},${qb},0.5)`);
+            glowGrad.addColorStop(0.5, `rgba(${qr},${qg},${qb},0.2)`);
+            glowGrad.addColorStop(1, `rgba(${qr},${qg},${qb},0)`);
+            sctx.fillStyle = glowGrad;
+            sctx.beginPath(); sctx.arc(cx, cx, radius, 0, Math.PI * 2); sctx.fill();
+
+            // Core
+            const coreR = qs * 1.5;
+            const coreGrad = sctx.createRadialGradient(cx, cx, 0, cx, cx, coreR);
+            coreGrad.addColorStop(0, `rgba(255,255,255,1)`);
+            coreGrad.addColorStop(0.5, `rgba(${qr},${qg},${qb},0.9)`);
+            coreGrad.addColorStop(1, `rgba(${qr},${qg},${qb},0.4)`);
+            sctx.fillStyle = coreGrad;
+            sctx.beginPath(); sctx.arc(cx, cx, coreR, 0, Math.PI * 2); sctx.fill();
+
+            // Bright center
+            sctx.fillStyle = `rgba(255,255,255,0.9)`;
+            sctx.beginPath(); sctx.arc(cx, cx, qs * 0.5, 0, Math.PI * 2); sctx.fill();
+
+            sprite = { canvas: c, dim: dim };
+            starSpriteCache.set(key, sprite);
+            return sprite;
+        }
+
+        // Canvas size settings (cap dpr at 2 to balance sharpness and performance)
         function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            cloudCanvas.width = window.innerWidth;
-            cloudCanvas.height = window.innerHeight;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            cloudCanvas.width = w * dpr;
+            cloudCanvas.height = h * dpr;
+            cloudCanvas.style.width = w + 'px';
+            cloudCanvas.style.height = h + 'px';
+            cloudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('resize', resizeCanvas, { passive: true });
 
         // ===== HIPPARCOS COORDINATE TRANSFORMATION UTILITIES =====
 
@@ -1365,9 +1438,9 @@
                     // Reduce twinkle amplitude for bright stars to prevent excessive brightness
                     const brightnessAdjustment = this.baseBrightness > 0.8 ? 0.6 : 1.0;
 
-                    // Single sine wave, scaled by altitude-dependent amplitude
-                    const ampFactor = (this.twinkleAmplitude || 1) * 0.25; // normalized
-                    const wave = Math.sin(this.twinklePhase) * ampFactor * brightnessAdjustment;
+                    // Single sine wave, scaled by altitude-dependent amplitude (LUT)
+                    const ampFactor = (this.twinkleAmplitude || 1) * 0.25;
+                    const wave = sinLUT(this.twinklePhase) * ampFactor * brightnessAdjustment;
 
                     // Color scintillation for low-altitude stars (subtle R/B shift)
                     if (this.altitude > 0.6 && this.scintillationPhase !== undefined) {
@@ -1403,22 +1476,20 @@
                         return 'remove';
                     }
                 } else if (this.type === 'snow') {
-                    // Snow movement with enhanced dual sine wave drift
+                    // Snow movement with enhanced dual sine wave drift (LUT-optimized)
                     const windDrift = (weatherState.windSpeed || 0) * 0.05;
 
                     this.driftOffset += this.driftSpeed;
                     this.driftOffset2 += this.driftSpeed2;
                     this.y += this.speedY;
 
-                    // Dual sine wave for organic drift
-                    let dx = this.speedX + Math.sin(this.driftOffset) * 0.5
-                           + Math.sin(this.driftOffset2) * this.driftAmp2 + windDrift;
+                    let dx = this.speedX + sinLUT(this.driftOffset) * 0.5
+                           + sinLUT(this.driftOffset2) * this.driftAmp2 + windDrift;
 
-                    // Swirl motion for select snowflakes
                     if (this.isSwirling) {
                         this.swirlPhase += this.swirlSpeed;
-                        dx += Math.cos(this.swirlPhase) * this.swirlRadius;
-                        this.y += Math.sin(this.swirlPhase) * this.swirlRadius * 0.3; // slight vertical wobble
+                        dx += cosLUT(this.swirlPhase) * this.swirlRadius;
+                        this.y += sinLUT(this.swirlPhase) * this.swirlRadius * 0.3;
                     }
 
                     this.x += dx;
@@ -1459,92 +1530,59 @@
                     return;
                 }
 
-                // Stars and shooting stars need save/restore for shadowBlur, lineCap etc.
-                ctx.save();
-
                 if (this.type === 'star') {
-                    // Calculate star visibility based on cloud cover
-                    // 0% cloud = 100% visible, 100% cloud = 0-10% visible
+                    // No save/restore needed — stars use sprite cache + simple lines
                     const cloudCover = weatherState.cloudCover || 0;
-                    const cloudCoverFactor = 1 - (cloudCover / 100) * 0.9; // Max 90% reduction
+                    const cloudCoverFactor = 1 - (cloudCover / 100) * 0.9;
                     ctx.globalAlpha = this.opacity * Math.max(0.1, cloudCoverFactor);
-                } else {
-                    ctx.globalAlpha = this.opacity;
                 }
 
                 if (this.type === 'star') {
                     let { r, g, b } = this.starColor;
                     const size = this.currentSize || this.baseSize;
 
-                    // Color scintillation for low-altitude stars (atmospheric prismatic effect)
+                    // Color scintillation for low-altitude stars
                     if (this.altitude > 0.6 && this.scintillationPhase !== undefined) {
-                        const scintAmount = (this.altitude - 0.6) * 25; // 0-10 color shift
-                        const scintWave = Math.sin(this.scintillationPhase);
+                        const scintAmount = (this.altitude - 0.6) * 25;
+                        const scintWave = sinLUT(this.scintillationPhase);
                         r = Math.min(255, Math.max(0, r + scintWave * scintAmount));
                         b = Math.min(255, Math.max(0, b - scintWave * scintAmount));
                     }
 
-                    // Calculate glow multiplier based on magnitude (brighter stars = larger glow)
-                    let glowMultiplier = 4; // Default glow size
+                    // Glow multiplier
+                    let glowMultiplier = 4;
                     if (this.magnitude !== undefined) {
-                        // Bright stars (mag < 2) get enhanced glow
                         if (this.magnitude < 2) {
-                            glowMultiplier = 6 + (2 - this.magnitude) * 1.5; // 6-10.5x for very bright stars
+                            glowMultiplier = 6 + (2 - this.magnitude) * 1.5;
                         } else if (this.magnitude < 3) {
-                            glowMultiplier = 5; // 5x for moderately bright stars
+                            glowMultiplier = 5;
                         }
                     }
 
-                    // Outer glow (larger, softer) - enhanced for bright stars
-                    const glowGradient = ctx.createRadialGradient(
-                        this.x, this.y, 0,
-                        this.x, this.y, size * glowMultiplier
-                    );
-                    glowGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.9})`);
-                    glowGradient.addColorStop(0.2, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.5})`);
-                    glowGradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.2})`);
-                    glowGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+                    // Draw cached sprite (no gradient creation per frame)
+                    const sprite = getStarSprite(r, g, b, size, glowMultiplier);
+                    ctx.drawImage(sprite.canvas,
+                        this.x - sprite.dim / 2, this.y - sprite.dim / 2);
 
-                    ctx.fillStyle = glowGradient;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, size * glowMultiplier, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // Core star (bright center)
-                    const coreGradient = ctx.createRadialGradient(
-                        this.x, this.y, 0,
-                        this.x, this.y, size * 1.5
-                    );
-                    coreGradient.addColorStop(0, `rgba(255, 255, 255, ${this.opacity})`);
-                    coreGradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.9})`);
-                    coreGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${this.opacity * 0.4})`);
-
-                    ctx.fillStyle = coreGradient;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, size * 1.5, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // Bright center point
-                    ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity * 0.9})`;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, size * 0.5, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // Cross sparkle effect (for bright stars)
+                    // Cross sparkle (lightweight lines, only for bright stars)
                     if (this.opacity > 0.7) {
                         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${(this.opacity - 0.7) * 2})`;
                         ctx.lineWidth = 0.5;
                         ctx.beginPath();
-                        // Vertical line
                         ctx.moveTo(this.x, this.y - size * 2);
                         ctx.lineTo(this.x, this.y + size * 2);
-                        // Horizontal line
                         ctx.moveTo(this.x - size * 2, this.y);
                         ctx.lineTo(this.x + size * 2, this.y);
                         ctx.stroke();
                     }
 
-                } else if (this.type === 'shootingStar') {
+                    return;
+                }
+
+                // Shooting stars need save/restore for shadowBlur, lineCap
+                if (this.type === 'shootingStar') {
+                    ctx.save();
+                    ctx.globalAlpha = this.opacity;
                     const now = Date.now();
 
                     // Draw afterimage trail (fading glow from previous positions)
@@ -1608,9 +1646,8 @@
                         ctx.fill();
                         ctx.shadowBlur = 0;
                     }
+                    ctx.restore();
                 }
-
-                ctx.restore();
             }
         }
 
@@ -1871,6 +1908,7 @@
                 // オフスクリーンキャンバスを作成（パフォーマンス最適化）
                 this.offscreenCanvas = document.createElement('canvas');
                 this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+                this.effectCacheDirty = true; // エフェクト付きキャッシュが未生成
 
                 // 見た目の設定
                 this.setWeatherAppearance(weatherCondition, layer);
@@ -1955,25 +1993,9 @@
 
             draw(ctx) {
                 if (!this.image || !this.image.complete) return;
-
-                // 画像サイズの検証
                 if (!this.image.width || !this.image.height) return;
 
-                // フィルター文字列を先に準備
-                let filterStr = `brightness(${this.brightness}) contrast(${this.contrast}) saturate(${this.saturation || 1})`;
-                if (this.blur) {
-                    filterStr += ` blur(${this.blur}px)`;
-                }
-
-                // ブレンドモード決定（3層構造）
-                let blendMode = 'screen';
-                if (this.layer === 0) {
-                    blendMode = 'screen'; // 遠景も光の反射として表現
-                } else if (this.layer === 2) {
-                    blendMode = 'soft-light'; // 近景
-                }
-
-                // 画像サイズ計算（ぼかし時のエッジ問題対策）
+                // 画像サイズ計算
                 let scaleAdjustment = 1.0;
                 if (this.blur && this.blur > 0) {
                     scaleAdjustment = 1.0 + (this.blur * 0.01);
@@ -1981,140 +2003,128 @@
                 const imgWidth = this.image.width * this.scale * scaleAdjustment;
                 const imgHeight = this.image.height * this.scale * scaleAdjustment;
 
-                // === 通常の描画（1枚のみ） ===
-                this.drawCloudWithEffects(ctx, this.x, this.y, imgWidth, imgHeight,
-                    this.baseOpacity, blendMode, filterStr, this.rotation);
+                // エフェクト付きキャッシュを初回のみ生成
+                if (this.effectCacheDirty) {
+                    let filterStr = `brightness(${this.brightness}) contrast(${this.contrast}) saturate(${this.saturation || 1})`;
+                    if (this.blur) filterStr += ` blur(${this.blur}px)`;
+                    this._buildEffectCache(imgWidth, imgHeight, filterStr);
+                    this.effectCacheDirty = false;
+                }
+
+                // ブレンドモード決定
+                let blendMode = 'screen';
+                if (this.layer === 2) blendMode = 'soft-light';
+
+                // キャッシュ済みオフスクリーンをメインCanvasに合成（軽量）
+                ctx.save();
+                ctx.globalAlpha = this.baseOpacity;
+                ctx.globalCompositeOperation = blendMode;
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                if (this.mirrored) ctx.scale(-1, 1);
+                ctx.drawImage(this.offscreenCanvas, -imgWidth, -imgHeight / 2);
+                ctx.restore();
             }
 
-            // 雲を各種エフェクト付きで描画するヘルパーメソッド
-            drawCloudWithEffects(ctx, x, y, imgWidth, imgHeight, opacity, blendMode, filterStr, rotation) {
-                ctx.save();
-
-                // オフスクリーンキャンバスを再利用（パフォーマンス改善）
+            // エフェクト付きオフスクリーンCanvasを一度だけ構築（以降キャッシュとして再利用）
+            _buildEffectCache(imgWidth, imgHeight, filterStr) {
                 const offscreen = this.offscreenCanvas;
                 const offCtx = this.offscreenCtx;
 
-                // 必要なサイズに調整
-                offscreen.width = imgWidth * 2; // シームレス用に2倍
+                offscreen.width = imgWidth * 2;
                 offscreen.height = imgHeight;
 
-                // キャンバスの状態をリセット（念のため）
                 offCtx.globalCompositeOperation = 'source-over';
                 offCtx.globalAlpha = 1.0;
 
                 // === 1. 雲画像を描画 ===
                 offCtx.filter = filterStr;
                 offCtx.drawImage(this.image, 0, 0, imgWidth, imgHeight);
-                offCtx.drawImage(this.image, imgWidth, 0, imgWidth, imgHeight); // シームレス用
+                offCtx.drawImage(this.image, imgWidth, 0, imgWidth, imgHeight);
+                offCtx.filter = 'none';
 
                 // === 2. 垂直方向の色調グラデーション（厚み表現） ===
                 offCtx.globalCompositeOperation = 'overlay';
                 const verticalGradient = offCtx.createLinearGradient(0, 0, 0, imgHeight);
-                verticalGradient.addColorStop(0, 'rgba(200, 220, 255, 0.2)'); // 上部：ごく薄い青（夜空の環境光）
-                verticalGradient.addColorStop(0.5, 'rgba(128, 128, 128, 0)'); // 中央：変化なし
-                verticalGradient.addColorStop(1, 'rgba(15, 20, 40, 0.4)'); // 下部：深い紺（夜空に馴染む）
+                verticalGradient.addColorStop(0, 'rgba(200, 220, 255, 0.2)');
+                verticalGradient.addColorStop(0.5, 'rgba(128, 128, 128, 0)');
+                verticalGradient.addColorStop(1, 'rgba(15, 20, 40, 0.4)');
                 offCtx.fillStyle = verticalGradient;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
                 // === 3. ソフトエッジ・マスク（放射状透過） ===
-                // 雲の外側を緩やかに透過させて背景に自然に馴染ませる - 境界線を完全に消す
                 offCtx.globalCompositeOperation = 'destination-in';
                 const radialMask = offCtx.createRadialGradient(
                     imgWidth, imgHeight / 2, 0,
-                    imgWidth, imgHeight / 2, imgWidth * 1.5  // 半径を大幅に拡大して柔らかく
+                    imgWidth, imgHeight / 2, imgWidth * 1.5
                 );
-                radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)');      // 中心：完全不透明
-                radialMask.addColorStop(0.4, 'rgba(0, 0, 0, 0.7)');  // 40%地点から透明度を下げる
-                radialMask.addColorStop(0.7, 'rgba(0, 0, 0, 0.2)');  // 70%地点：かなり薄く
-                radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)');      // 外側：完全透明
+                radialMask.addColorStop(0, 'rgba(0, 0, 0, 1)');
+                radialMask.addColorStop(0.4, 'rgba(0, 0, 0, 0.7)');
+                radialMask.addColorStop(0.7, 'rgba(0, 0, 0, 0.2)');
+                radialMask.addColorStop(1, 'rgba(0, 0, 0, 0)');
                 offCtx.fillStyle = radialMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
-                // === 4. 矩形エッジの強制透過（画像の外枠を完全に消す） ===
-                // 上下左右の端を強制的に透明にして矩形の境界を消す
+                // === 4. 矩形エッジの強制透過 ===
                 offCtx.globalCompositeOperation = 'destination-in';
-
-                // 水平方向のマスク（左右の端を透明に）- 少し弱める
                 const horizontalMask = offCtx.createLinearGradient(0, 0, imgWidth * 2, 0);
-                horizontalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');      // 左端：完全透明
-                horizontalMask.addColorStop(0.28, 'rgba(0, 0, 0, 1)');   // 28%地点：不透明
-                horizontalMask.addColorStop(0.72, 'rgba(0, 0, 0, 1)');   // 72%地点：不透明
-                horizontalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');      // 右端：完全透明
+                horizontalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                horizontalMask.addColorStop(0.28, 'rgba(0, 0, 0, 1)');
+                horizontalMask.addColorStop(0.72, 'rgba(0, 0, 0, 1)');
+                horizontalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');
                 offCtx.fillStyle = horizontalMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
 
-                // 垂直方向のマスク（上下の端を透明に）- 少し弱める
                 const verticalMask = offCtx.createLinearGradient(0, 0, 0, imgHeight);
-                verticalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');        // 上端：完全透明
-                verticalMask.addColorStop(0.32, 'rgba(0, 0, 0, 1)');     // 32%地点：不透明
-                verticalMask.addColorStop(0.68, 'rgba(0, 0, 0, 1)');     // 68%地点：不透明
-                verticalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');        // 下端：完全透明
+                verticalMask.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                verticalMask.addColorStop(0.32, 'rgba(0, 0, 0, 1)');
+                verticalMask.addColorStop(0.68, 'rgba(0, 0, 0, 1)');
+                verticalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');
                 offCtx.fillStyle = verticalMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
-
-                // === 5. メインキャンバスに合成 ===
-                ctx.globalAlpha = opacity;
-                ctx.globalCompositeOperation = blendMode;
-                ctx.translate(x, y);
-
-                // ランダムな回転を適用
-                ctx.rotate(rotation);
-
-                if (this.mirrored) {
-                    ctx.scale(-1, 1);
-                }
-                ctx.drawImage(offscreen, -imgWidth, -imgHeight / 2);
-
-                ctx.restore();
             }
         }
 
-        // Sun Halo Manager - 日暈（太陽の周りの光の輪）
+        // Sun Halo Manager - 日暈（太陽の周りの光の輪）- オフスクリーンキャッシュ方式
         const sunHaloManager = {
             active: false,
             sunX: 0,
             sunY: 0,
-            sunRadius: 40, // 太陽のサイズ（CSS変数 --celestial-body-size の半分）
-            lastCloudCheckTime: 0, // 最後に雲チェックした時間（ミリ秒）
-            cachedCloudOverlapBonus: 0, // キャッシュされた雲のボーナス値
-            cloudCheckInterval: 600000, // 10分 = 600,000ミリ秒
-            lastConditionCheckTime: 0, // 最後に条件チェックした時間
-            conditionCheckInterval: 60000, // 60秒に1回チェック
-            cachedIntensityMultiplier: 1.0, // キャッシュされた強度倍率
+            sunRadius: 40,
+            lastCloudCheckTime: 0,
+            cachedCloudOverlapBonus: 0,
+            cloudCheckInterval: 600000,
+            lastConditionCheckTime: 0,
+            conditionCheckInterval: 60000,
+            cachedIntensityMultiplier: 1.0,
+            // オフスクリーンCanvasキャッシュ
+            _haloCanvas: null,
+            _haloDirty: true,
 
-            // 日暈の出現条件をチェック + 太陽位置を更新（60秒に1回）
             updateConditionsAndPosition() {
                 const now = Date.now();
                 if (now - this.lastConditionCheckTime < this.conditionCheckInterval) return;
                 this.lastConditionCheckTime = now;
+                this._haloDirty = true; // 条件変化でキャッシュ無効化
 
                 const solarProgress = getSolarProgress();
                 const cloudCover = weatherState.cloudCover || 0;
                 const condition = weatherState.condition || '';
 
-                // 条件1: 日中である（太陽が出ている）
                 const isDaytime = solarProgress >= 0.1 && solarProgress <= 0.9;
-
-                // 条件2: 天候が適切（晴れまたは曇り）
                 const isValidWeather = condition === 'Clear' || condition === 'Clouds';
-
-                // 条件3: 雲量が適切（20-50%）
                 const isValidCloudCover = cloudCover >= 20 && cloudCover <= 50;
-
                 this.active = isDaytime && isValidWeather && isValidCloudCover;
 
-                // 太陽の位置を更新
                 if (solarProgress >= 0 && solarProgress <= 1) {
                     const centerX = window.innerWidth / 2;
                     const radiusX = window.innerWidth * 0.4;
                     const radiusY = window.innerHeight * 0.5;
-
                     const angle = Math.PI * solarProgress;
                     this.sunX = centerX + Math.cos(Math.PI - angle) * radiusX;
                     this.sunY = window.innerHeight * 0.8 - Math.sin(angle) * radiusY;
                 }
 
-                // 朝（0.1-0.3）と夕方（0.7-0.9）で色を強調
                 if (solarProgress < 0.3) {
                     this.cachedIntensityMultiplier = 1.3;
                 } else if (solarProgress > 0.7) {
@@ -2124,111 +2134,96 @@
                 }
             },
 
-            // 日暈を描画
-            drawHalo(ctx) {
-                if (!this.active) return;
+            // オフスクリーンCanvasにblur付き日暈を一度だけ描画
+            _rebuildCache() {
+                const haloRadius = this.sunRadius * 5;
+                const ringWidth = this.sunRadius * 1.5;
+                const totalRadius = haloRadius + ringWidth + 40; // blur余白
+                const dim = Math.ceil(totalRadius * 2 + 4);
+                const cx = dim / 2;
 
-                ctx.save();
+                if (!this._haloCanvas) {
+                    this._haloCanvas = document.createElement('canvas');
+                    this._haloCtx = this._haloCanvas.getContext('2d');
+                }
+                this._haloCanvas.width = dim;
+                this._haloCanvas.height = dim;
+                const hctx = this._haloCtx;
 
-                const intensityMultiplier = this.cachedIntensityMultiplier;
-
-                // 高度な演出2: 雲との重なりをチェック（個々の雲の位置を確認）
-                // 軽量化: 10分に1回だけチェック、それ以外はキャッシュを使用
+                // 雲重なりボーナス
                 let cloudOverlapBonus = 0;
                 const currentTime = Date.now();
-                const timeSinceLastCheck = currentTime - this.lastCloudCheckTime;
-
-                if (timeSinceLastCheck >= this.cloudCheckInterval) {
-                    // 10分経過したので雲チェックを実行
+                if (currentTime - this.lastCloudCheckTime >= this.cloudCheckInterval) {
                     let nearbyCloudCount = 0;
-                    const detectionRadius = this.sunRadius * 6; // 日暈の範囲内
-
-                    // 雲レイヤーをチェック（軽量化: Layer 0スキップ、1つおきにサンプリング）
-                    // Layer 0（遠景）は日暈への影響が少ないためスキップ
+                    const detectionRadius = this.sunRadius * 6;
                     for (let layerIndex = 1; layerIndex < cloudManager.layers.length; layerIndex++) {
                         const layer = cloudManager.layers[layerIndex];
-                        // 1つおきにチェック（サンプリング）
                         for (let i = 0; i < layer.length; i += 2) {
                             const cloud = layer[i];
                             const dx = cloud.x - this.sunX;
                             const dy = cloud.y - this.sunY;
-                            const distance = Math.sqrt(dx * dx + dy * dy);
-
-                            // 太陽の近くに雲がある場合
-                            if (distance < detectionRadius) {
-                                nearbyCloudCount++;
-                            }
+                            if (Math.sqrt(dx * dx + dy * dy) < detectionRadius) nearbyCloudCount++;
                         }
                     }
-
-                    // 近くの雲の数に応じてボーナス（最大0.1まで）
                     cloudOverlapBonus = Math.min(0.1, nearbyCloudCount * 0.02);
-
-                    // キャッシュを更新
                     this.cachedCloudOverlapBonus = cloudOverlapBonus;
                     this.lastCloudCheckTime = currentTime;
                 } else {
-                    // 10分経過していないのでキャッシュを使用
                     cloudOverlapBonus = this.cachedCloudOverlapBonus;
                 }
 
-                // 基本の透明度 15% + ボーナス
+                const intensityMultiplier = this.cachedIntensityMultiplier;
                 const baseOpacity = (0.15 + cloudOverlapBonus) * intensityMultiplier;
+                const brightnessBoost = 1.0 + cloudOverlapBonus * 2;
 
-                // 日暈の半径（太陽の5倍）
-                const haloRadius = this.sunRadius * 5;
-                const ringWidth = this.sunRadius * 1.5; // リングの幅
-
-                // === ドラマチック演出1: 内側の暗闇 ===
-                // 日暈の内側（太陽と虹色の輪の間）を暗く設定
-                const innerDarkness = ctx.createRadialGradient(
-                    this.sunX, this.sunY, this.sunRadius * 1.2,
-                    this.sunX, this.sunY, haloRadius - ringWidth * 0.5
+                // 内側の暗闘（blur付き）
+                const innerDarkness = hctx.createRadialGradient(
+                    cx, cx, this.sunRadius * 1.2,
+                    cx, cx, haloRadius - ringWidth * 0.5
                 );
-                innerDarkness.addColorStop(0, 'rgba(0, 0, 30, 0)');         // 中心は透明
-                innerDarkness.addColorStop(0.3, 'rgba(0, 0, 40, 0.15)');    // 暗い紺色
-                innerDarkness.addColorStop(0.7, 'rgba(0, 0, 50, 0.25)');    // さらに暗く
-                innerDarkness.addColorStop(1, 'rgba(0, 0, 60, 0.1)');       // 外側は薄く
+                innerDarkness.addColorStop(0, 'rgba(0, 0, 30, 0)');
+                innerDarkness.addColorStop(0.3, 'rgba(0, 0, 40, 0.15)');
+                innerDarkness.addColorStop(0.7, 'rgba(0, 0, 50, 0.25)');
+                innerDarkness.addColorStop(1, 'rgba(0, 0, 60, 0.1)');
 
-                ctx.globalCompositeOperation = 'multiply';
-                ctx.filter = 'blur(30px)';
-                ctx.fillStyle = innerDarkness;
-                ctx.beginPath();
-                ctx.arc(this.sunX, this.sunY, haloRadius - ringWidth * 0.5, 0, Math.PI * 2);
-                ctx.fill();
+                hctx.globalCompositeOperation = 'multiply';
+                hctx.filter = 'blur(30px)';
+                hctx.fillStyle = innerDarkness;
+                hctx.beginPath();
+                hctx.arc(cx, cx, haloRadius - ringWidth * 0.5, 0, Math.PI * 2);
+                hctx.fill();
 
-                // === ドラマチック演出2: 虹色の輪（不規則な輝き） ===
-                // 虹色のグラデーション（内側が赤、外側が青）
-                const gradient = ctx.createRadialGradient(
-                    this.sunX, this.sunY, haloRadius - ringWidth,
-                    this.sunX, this.sunY, haloRadius + ringWidth
+                // 虹色の輪（blur付き）
+                const gradient = hctx.createRadialGradient(
+                    cx, cx, haloRadius - ringWidth,
+                    cx, cx, haloRadius + ringWidth
                 );
+                gradient.addColorStop(0, `rgba(255, 100, 100, 0)`);
+                gradient.addColorStop(0.3, `rgba(255, 150, 100, ${baseOpacity * 0.8 * brightnessBoost})`);
+                gradient.addColorStop(0.4, `rgba(255, 220, 150, ${baseOpacity * brightnessBoost})`);
+                gradient.addColorStop(0.5, `rgba(255, 255, 200, ${baseOpacity * brightnessBoost})`);
+                gradient.addColorStop(0.6, `rgba(200, 255, 200, ${baseOpacity * brightnessBoost})`);
+                gradient.addColorStop(0.7, `rgba(150, 200, 255, ${baseOpacity * 0.8 * brightnessBoost})`);
+                gradient.addColorStop(1, `rgba(150, 150, 255, 0)`);
 
-                // 雲と重なった部分の輝きを表現（ベースの透明度を調整）
-                const brightnessBoost = 1.0 + cloudOverlapBonus * 2; // 雲が近いと最大1.2倍の輝き
+                hctx.globalCompositeOperation = 'screen';
+                hctx.filter = 'blur(20px)';
+                hctx.fillStyle = gradient;
+                hctx.beginPath();
+                hctx.arc(cx, cx, haloRadius + ringWidth, 0, Math.PI * 2);
+                hctx.fill();
 
-                // 内側から外側への虹色グラデーション
-                gradient.addColorStop(0, `rgba(255, 100, 100, 0)`);           // 透明
-                gradient.addColorStop(0.3, `rgba(255, 150, 100, ${baseOpacity * 0.8 * brightnessBoost})`); // 赤っぽい
-                gradient.addColorStop(0.4, `rgba(255, 220, 150, ${baseOpacity * brightnessBoost})`);       // オレンジ
-                gradient.addColorStop(0.5, `rgba(255, 255, 200, ${baseOpacity * brightnessBoost})`);       // 黄色
-                gradient.addColorStop(0.6, `rgba(200, 255, 200, ${baseOpacity * brightnessBoost})`);       // 緑
-                gradient.addColorStop(0.7, `rgba(150, 200, 255, ${baseOpacity * 0.8 * brightnessBoost})`); // 青っぽい
-                gradient.addColorStop(1, `rgba(150, 150, 255, 0)`);           // 透明
+                hctx.filter = 'none';
+                this._haloDirty = false;
+            },
 
-                // 合成モード: 光を足し合わせる
-                ctx.globalCompositeOperation = 'screen';
+            // 毎フレーム: キャッシュ済みCanvasをdrawImageするだけ
+            drawHalo(ctx) {
+                if (!this.active) return;
+                if (this._haloDirty || !this._haloCanvas) this._rebuildCache();
 
-                // ぼかし効果で境界を曖昧に
-                ctx.filter = 'blur(20px)';
-
-                // 日暈を描画
-                ctx.fillStyle = gradient;
-                ctx.beginPath();
-                ctx.arc(this.sunX, this.sunY, haloRadius + ringWidth, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.restore();
+                const dim = this._haloCanvas.width;
+                ctx.drawImage(this._haloCanvas, this.sunX - dim / 2, this.sunY - dim / 2);
             }
         };
 
@@ -2321,11 +2316,11 @@
                 }
 
                 if (tintIntensity > 0.01) {
-                    ctx.save();
+                    const prevComp = ctx.globalCompositeOperation;
                     ctx.globalCompositeOperation = 'overlay';
                     ctx.fillStyle = `rgba(${tintR}, ${tintG}, ${tintB}, ${tintIntensity})`;
                     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                    ctx.restore();
+                    ctx.globalCompositeOperation = prevComp;
                 }
             },
 
@@ -2968,27 +2963,19 @@
             }
         }
 
-        // Animation loop - 10fps target (100ms per frame)
+        // Animation loop - 10fps target using setTimeout + rAF (no idle polling)
         let frameCount = 0;
-        let lastFrameTime = performance.now();
         const targetFrameTime = 1000 / 10; // 10fps = 100ms per frame
 
+        function scheduleNextFrame() {
+            setTimeout(() => { requestAnimationFrame(animateParticles); }, targetFrameTime);
+        }
+
         function animateParticles(currentTime) {
-            requestAnimationFrame(animateParticles);
+            scheduleNextFrame();
 
-            // Calculate time since last frame
-            const deltaTime = currentTime - lastFrameTime;
-
-            // Skip frame if not enough time has passed (throttle to 15fps)
-            if (deltaTime < targetFrameTime) {
-                return;
-            }
-
-            // Update lastFrameTime (accounting for any extra time)
-            lastFrameTime = currentTime - (deltaTime % targetFrameTime);
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            cloudCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
+            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            cloudCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
             // Atmospheric glow at horizon (drawn first, behind particles)
             drawHorizonGlow();
@@ -3003,15 +2990,17 @@
             }
             cloudManager.drawClouds(cloudCtx);
 
-            // EXISTING: Update and draw particles (filter out those that need removal)
-            particles = particles.filter(particle => {
-                const result = particle.update();
+            // Update and draw particles (in-place removal to avoid GC)
+            let writeIdx = 0;
+            for (let i = 0; i < particles.length; i++) {
+                const result = particles[i].update();
                 if (result !== 'remove') {
-                    particle.draw();
-                    return true;
+                    particles[i].draw();
+                    if (writeIdx !== i) particles[writeIdx] = particles[i];
+                    writeIdx++;
                 }
-                return false;
-            });
+            }
+            particles.length = writeIdx;
 
             // Track frame count (for shooting star timing, etc.)
             frameCount++;
@@ -3027,17 +3016,19 @@
                 }
             }
 
-            // Update and draw rain splashes
+            // Update and draw rain splashes (in-place removal)
             if (rainSplashes.length > 0) {
-                rainSplashes = rainSplashes.filter(splash => {
-                    const result = splash.update();
+                let sIdx = 0;
+                for (let i = 0; i < rainSplashes.length; i++) {
+                    const result = rainSplashes[i].update();
                     if (result !== 'remove') {
-                        splash.draw();
-                        return true;
+                        rainSplashes[i].draw();
+                        if (sIdx !== i) rainSplashes[sIdx] = rainSplashes[i];
+                        sIdx++;
                     }
-                    return false;
-                });
-                ctx.globalAlpha = 1; // Reset after splash drawing
+                }
+                rainSplashes.length = sIdx;
+                ctx.globalAlpha = 1;
             }
 
             // NEW: Update and draw lightning (ON TOP of everything)
@@ -3051,7 +3042,7 @@
         }
 
         // Start the animation loop
-        animateParticles(performance.now());
+        requestAnimationFrame(animateParticles);
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
@@ -3243,11 +3234,13 @@
         const dimmerRange = document.getElementById('dimmer-range');
         const dimmerOverlay = document.getElementById('dimmer-overlay');
 
+        let dimmerSaveTimer;
         dimmerRange.addEventListener('input', (e) => {
             // Use slider value (0-0.9) as opacity
             // 0 = transparent (bright), 0.9 = almost black
             dimmerOverlay.style.opacity = e.target.value;
-            saveSettings();
+            clearTimeout(dimmerSaveTimer);
+            dimmerSaveTimer = setTimeout(saveSettings, 300);
         });
 
 

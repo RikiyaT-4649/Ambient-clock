@@ -77,6 +77,7 @@
             -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+            touch-action: none;
         }
 
         /* Background area */
@@ -158,16 +159,9 @@
             font-weight: 200;
             letter-spacing: 0.05em;
             text-shadow:
-                /* Soft floating shadow layers - creates depth */
-                0 2px 20px rgba(0, 0, 0, 0.35),
-                0 4px 40px rgba(0, 0, 0, 0.25),
-                0 8px 60px rgba(0, 0, 0, 0.15),
-                /* Gentle surrounding shadow - frame effect */
+                0 4px 40px rgba(0, 0, 0, 0.35),
                 0 0 30px rgba(0, 0, 0, 0.4),
-                0 0 50px rgba(0, 0, 0, 0.25),
-                /* Subtle white glow - softness */
-                0 0 40px rgba(255, 255, 255, 0.15),
-                0 0 80px rgba(255, 255, 255, 0.08);
+                0 0 50px rgba(255, 255, 255, 0.12);
 
             /* Important: Fixed-width numbers */
             font-feature-settings: "tnum";
@@ -184,14 +178,9 @@
             letter-spacing: 0.2em;
             text-transform: uppercase;
             text-shadow:
-                /* Soft floating shadow */
-                0 2px 15px rgba(0, 0, 0, 0.35),
-                0 4px 30px rgba(0, 0, 0, 0.2),
-                /* Gentle surrounding shadow */
-                0 0 20px rgba(0, 0, 0, 0.3),
-                0 0 35px rgba(0, 0, 0, 0.15),
-                /* Subtle white glow */
-                0 0 25px rgba(255, 255, 255, 0.12);
+                0 2px 20px rgba(0, 0, 0, 0.35),
+                0 0 25px rgba(0, 0, 0, 0.3),
+                0 0 30px rgba(255, 255, 255, 0.10);
             color: #ffffff;
         }
 
@@ -302,9 +291,7 @@
         }
 
         #controls {
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            background: rgba(0, 0, 0, 0.75);
             padding: var(--control-padding);
             border-radius: var(--control-border-radius);
             display: flex;
@@ -315,6 +302,8 @@
                 0 0 60px rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.15);
             animation: float 6s ease-in-out infinite;
+            touch-action: manipulation;
+            will-change: transform;
         }
 
         @keyframes float {
@@ -346,7 +335,6 @@
         .icon:hover {
             opacity: 0.9;
             transform: scale(1.2) rotate(5deg);
-            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
         }
         .icon.active {
             opacity: 1;
@@ -499,9 +487,7 @@
             position: absolute;
             top: var(--tools-panel-top);
             right: var(--tools-panel-right);
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
+            background: rgba(0, 0, 0, 0.8);
             border-radius: var(--tools-panel-border-radius);
             padding: var(--tools-panel-padding);
             min-width: var(--tools-panel-min-width);
@@ -517,6 +503,7 @@
             opacity: 1;
             transform: translateX(0);
             pointer-events: auto;
+            touch-action: manipulation;
         }
 
         .tool-section {
@@ -606,9 +593,7 @@
             position: absolute;
             bottom: var(--shortcut-hint-bottom);
             right: var(--shortcut-hint-right);
-            background: rgba(0, 0, 0, 0.5);
-            -webkit-backdrop-filter: blur(10px);
-            backdrop-filter: blur(10px);
+            background: rgba(0, 0, 0, 0.65);
             padding: var(--shortcut-hint-padding);
             border-radius: var(--shortcut-hint-border-radius);
             font-size: var(--shortcut-hint-font-size);
@@ -811,8 +796,9 @@
             }
 
             #tools-panel {
-                max-height: calc(100vh - 20px);
+                max-height: calc(100svh - 20px);
                 overflow-y: auto;
+                overscroll-behavior: contain;
             }
 
             .tool-section {
@@ -902,4 +888,20 @@ body:not(.app-loaded) #cloud-canvas,
 body:not(.app-loaded) #sky-cover-overlay {
     opacity: 0 !important;
     visibility: hidden !important;
+}
+
+/* Reduce motion for accessibility and low-spec devices */
+@media (prefers-reduced-motion: reduce) {
+    #controls {
+        animation: none !important;
+    }
+    .icon.active {
+        animation: none !important;
+    }
+    .icon {
+        transition: none !important;
+    }
+    #tools-panel {
+        transition: opacity 0.2s !important;
+    }
 }
