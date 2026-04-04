@@ -1526,7 +1526,15 @@
                     const scale = this.size * 0.9 + 0.3;
                     const sw = spriteCache.rain.width * scale;
                     const sh = spriteCache.rain.height * scale;
-                    ctx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
+
+                    // Tilt rain sprite based on wind + horizontal speed
+                    const totalDx = this.speedX + (weatherState.windSpeed || 0) * 0.3;
+                    const angle = Math.atan2(totalDx, this.speedY); // 0 = vertical, positive = right tilt
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(angle);
+                    ctx.drawImage(spriteCache.rain, -sw / 2, -sh / 2, sw, sh);
+                    ctx.restore();
                     return;
                 }
 
@@ -1979,7 +1987,7 @@
             }
 
             update() {
-                const windEffect = (weatherState.windSpeed || 0) * 0.05;
+                const windEffect = (weatherState.windSpeed || 0) * 0.2;
                 this.x += this.speed + windEffect;
 
                 // 画面右端から出たら左端へ戻す（シームレスループ）
