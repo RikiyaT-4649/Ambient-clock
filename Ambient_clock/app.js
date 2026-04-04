@@ -280,6 +280,7 @@
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
+                    if (typeof updateRainSprite === 'function') updateRainSprite();
                     weatherState.cloudCover = weather.cloudCover;
                     weatherState.precipitation = weather.precipitation;
                     weatherState.moonPhase = weather.moonPhase;
@@ -326,6 +327,7 @@
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
+                    if (typeof updateRainSprite === 'function') updateRainSprite();
                     weatherState.cloudCover = weather.cloudCover;
                     weatherState.precipitation = weather.precipitation;
                     weatherState.moonPhase = weather.moonPhase;
@@ -1526,15 +1528,7 @@
                     const scale = this.size * 0.9 + 0.3;
                     const sw = spriteCache.rain.width * scale;
                     const sh = spriteCache.rain.height * scale;
-
-                    // Tilt rain sprite based on wind + horizontal speed
-                    const totalDx = this.speedX + (weatherState.windSpeed || 0) * 0.3;
-                    const angle = Math.atan2(totalDx, this.speedY); // 0 = vertical, positive = right tilt
-                    ctx.save();
-                    ctx.translate(this.x, this.y);
-                    ctx.rotate(angle);
-                    ctx.drawImage(spriteCache.rain, -sw / 2, -sh / 2, sw, sh);
-                    ctx.restore();
+                    ctx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
                     return;
                 }
 
@@ -2836,24 +2830,46 @@
         // --- Sprite cache for rain, snow, and splash droplets ---
         const spriteCache = {};
 
-        function createRainSprite() {
-            // Pre-render a rain streak as a simple gradient line
+        // Create a rain sprite pre-rotated by the given angle
+        function createRainSprite(angle) {
             const w = 4, h = 28;
+            // Rotated bounding box
+            const sin = Math.abs(Math.sin(angle));
+            const cos = Math.abs(Math.cos(angle));
+            const rw = Math.ceil(w * cos + h * sin) + 2;
+            const rh = Math.ceil(w * sin + h * cos) + 2;
             const c = document.createElement('canvas');
-            c.width = w; c.height = h;
+            c.width = rw; c.height = rh;
             const cx = c.getContext('2d');
-            const grad = cx.createLinearGradient(w / 2, 0, w / 2, h);
+            cx.translate(rw / 2, rh / 2);
+            cx.rotate(angle);
+            // Draw raindrop centered at origin
+            const grad = cx.createLinearGradient(0, -h / 2, 0, h / 2);
             grad.addColorStop(0, 'rgba(136, 192, 208, 0.1)');
             grad.addColorStop(0.4, 'rgba(136, 192, 208, 0.4)');
             grad.addColorStop(1, 'rgba(136, 192, 208, 0.55)');
             cx.fillStyle = grad;
             cx.beginPath();
-            cx.moveTo(w / 2, 0);
-            cx.lineTo(w * 0.85, h * 0.7);
-            cx.quadraticCurveTo(w / 2, h * 1.05, w * 0.15, h * 0.7);
+            cx.moveTo(0, -h / 2);
+            cx.lineTo(w * 0.35, h * 0.2);
+            cx.quadraticCurveTo(0, h * 0.55, -w * 0.35, h * 0.2);
             cx.closePath();
             cx.fill();
             return c;
+        }
+
+        // Rebuild rain sprite when wind changes (called from weather update)
+        let _cachedRainWindSpeed = -999;
+        function updateRainSprite() {
+            const ws = weatherState.windSpeed || 0;
+            // Only rebuild if wind changed significantly (>2 km/h difference)
+            if (Math.abs(ws - _cachedRainWindSpeed) < 2) return;
+            _cachedRainWindSpeed = ws;
+            // Average rain speedY ~16, windDrift = ws * 0.3
+            const avgSpeedY = 16;
+            const totalDx = ws * 0.3;
+            const angle = Math.atan2(totalDx, avgSpeedY);
+            spriteCache.rain = createRainSprite(angle);
         }
 
         function createSnowSprites() {
@@ -2905,7 +2921,7 @@
         }
 
         // Initialize sprite cache
-        spriteCache.rain = createRainSprite();
+        spriteCache.rain = createRainSprite(0);
         spriteCache.snow = createSnowSprites();
         spriteCache.splashDroplet = createSplashDropletSprite();
 
