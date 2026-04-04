@@ -2140,7 +2140,7 @@
             _rebuildCache() {
                 const haloRadius = this.sunRadius * 5;
                 const ringWidth = this.sunRadius * 1.5;
-                const totalRadius = haloRadius + ringWidth + 40; // blur余白
+                const totalRadius = haloRadius + ringWidth + 55; // blur余白（blur 35px対応）
                 const dim = Math.ceil(totalRadius * 2 + 4);
                 const cx = dim / 2;
 
@@ -2195,21 +2195,36 @@
                 hctx.arc(cx, cx, haloRadius - ringWidth * 0.5, 0, Math.PI * 2);
                 hctx.fill();
 
-                // 虹色の輪（blur付き）
+                // 虹色の輪（blur付き・滑らかなグラデーション）
                 const gradient = hctx.createRadialGradient(
                     cx, cx, haloRadius - ringWidth,
                     cx, cx, haloRadius + ringWidth
                 );
-                gradient.addColorStop(0, `rgba(255, 100, 100, 0)`);
-                gradient.addColorStop(0.3, `rgba(255, 150, 100, ${baseOpacity * 0.8 * brightnessBoost})`);
-                gradient.addColorStop(0.4, `rgba(255, 220, 150, ${baseOpacity * brightnessBoost})`);
-                gradient.addColorStop(0.5, `rgba(255, 255, 200, ${baseOpacity * brightnessBoost})`);
-                gradient.addColorStop(0.6, `rgba(200, 255, 200, ${baseOpacity * brightnessBoost})`);
-                gradient.addColorStop(0.7, `rgba(150, 200, 255, ${baseOpacity * 0.8 * brightnessBoost})`);
-                gradient.addColorStop(1, `rgba(150, 150, 255, 0)`);
+                const bo = baseOpacity * brightnessBoost;
+                // 内側フェードイン（緩やか）
+                gradient.addColorStop(0,    `rgba(255, 100, 100, 0)`);
+                gradient.addColorStop(0.10, `rgba(255, 110, 100, ${bo * 0.1})`);
+                gradient.addColorStop(0.20, `rgba(255, 130, 100, ${bo * 0.4})`);
+                // 赤 → オレンジ
+                gradient.addColorStop(0.30, `rgba(255, 150, 100, ${bo * 0.7})`);
+                gradient.addColorStop(0.35, `rgba(255, 185, 125, ${bo * 0.85})`);
+                // オレンジ → 黄
+                gradient.addColorStop(0.40, `rgba(255, 220, 150, ${bo * 0.95})`);
+                gradient.addColorStop(0.45, `rgba(255, 240, 175, ${bo})`);
+                // 黄 → 緑
+                gradient.addColorStop(0.50, `rgba(240, 255, 200, ${bo})`);
+                gradient.addColorStop(0.55, `rgba(220, 255, 200, ${bo * 0.95})`);
+                // 緑 → 青
+                gradient.addColorStop(0.60, `rgba(190, 245, 210, ${bo * 0.85})`);
+                gradient.addColorStop(0.65, `rgba(170, 225, 235, ${bo * 0.7})`);
+                gradient.addColorStop(0.70, `rgba(150, 200, 255, ${bo * 0.55})`);
+                // 外側フェードアウト（緩やか）
+                gradient.addColorStop(0.80, `rgba(150, 175, 255, ${bo * 0.25})`);
+                gradient.addColorStop(0.90, `rgba(150, 160, 255, ${bo * 0.08})`);
+                gradient.addColorStop(1,    `rgba(150, 150, 255, 0)`);
 
                 hctx.globalCompositeOperation = 'screen';
-                hctx.filter = 'blur(20px)';
+                hctx.filter = 'blur(35px)';
                 hctx.fillStyle = gradient;
                 hctx.beginPath();
                 hctx.arc(cx, cx, haloRadius + ringWidth, 0, Math.PI * 2);
