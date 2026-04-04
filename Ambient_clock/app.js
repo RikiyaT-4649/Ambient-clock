@@ -1161,26 +1161,65 @@
             return sprite;
         }
 
+        // Logical canvas dimensions (CSS pixels) — use these for all coordinate calculations
+        let canvasW = window.innerWidth;
+        let canvasH = window.innerHeight;
+
         // Canvas size settings (cap dpr at 2 to balance sharpness and performance)
         function resizeCanvas() {
             const dpr = Math.min(window.devicePixelRatio || 1, 2);
-            const w = window.innerWidth;
-            const h = window.innerHeight;
+            canvasW = window.innerWidth;
+            canvasH = window.innerHeight;
 
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
-            canvas.style.width = w + 'px';
-            canvas.style.height = h + 'px';
+            canvas.width = canvasW * dpr;
+            canvas.height = canvasH * dpr;
+            canvas.style.width = canvasW + 'px';
+            canvas.style.height = canvasH + 'px';
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            cloudCanvas.width = w * dpr;
-            cloudCanvas.height = h * dpr;
-            cloudCanvas.style.width = w + 'px';
-            cloudCanvas.style.height = h + 'px';
+            cloudCanvas.width = canvasW * dpr;
+            cloudCanvas.height = canvasH * dpr;
+            cloudCanvas.style.width = canvasW + 'px';
+            cloudCanvas.style.height = canvasH + 'px';
             cloudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         resizeCanvas();
-        window.addEventListener('resize', resizeCanvas, { passive: true });
+
+        // Debounced post-resize: rebuild particles, clouds, celestial body (200ms)
+        let _resizeTimer = null;
+        function onResizeComplete() {
+            resizeCanvas();
+
+            // B: Re-generate star positions for new dimensions
+            if (typeof updateStarField === 'function') updateStarField();
+
+            // C: Invalidate cloud effect caches
+            if (typeof cloudManager !== 'undefined' && cloudManager.initialized) {
+                for (const layer of cloudManager.layers) {
+                    for (const cloud of layer) {
+                        cloud.effectCacheDirty = true;
+                    }
+                }
+            }
+
+            // D: Recalculate celestial body position
+            if (typeof updateCelestialBody === 'function') {
+                const now = new Date();
+                updateCelestialBody(now.getHours(), now.getMinutes());
+            }
+
+            // Invalidate sun halo cache
+            if (typeof sunHaloManager !== 'undefined') {
+                sunHaloManager._haloDirty = true;
+            }
+        }
+
+        // E: Debounce resize events — immediate canvas resize + delayed rebuild
+        window.addEventListener('resize', () => {
+            resizeCanvas(); // Immediate: prevent black bars
+            clearTimeout(_resizeTimer);
+            _resizeTimer = setTimeout(onResizeComplete, 200);
+        }, { passive: true });
 
         // ===== HIPPARCOS COORDINATE TRANSFORMATION UTILITIES =====
 
@@ -1236,8 +1275,8 @@
         function projectStarToScreen(alt, az) {
             if (alt < 0) return null; // Below horizon
 
-            const centerX = canvas.width / 2;
-            const canvasHeight = canvas.height;
+            const centerX = canvasW / 2;
+            const logicalH = canvasH;
 
             // Field of View settings
             // Vertical FOV: 0° (horizon/bottom) to 90° (zenith/top)
@@ -1245,10 +1284,10 @@
 
             // Use a single scale for both axes to preserve aspect ratio
             // Scale is based on height to ensure bottom = horizon, top = zenith
-            const scale = canvasHeight / verticalFOV;
+            const scale = logicalH / verticalFOV;
 
             // Calculate horizontal FOV based on canvas width and same scale
-            const horizontalFOV = canvas.width / scale;
+            const horizontalFOV = canvasW / scale;
 
             // X-axis: Azimuth mapping
             // South (180°) should be at screen center
@@ -1268,12 +1307,12 @@
             const x = centerX + (azFromSouth * scale);
 
             // Y-axis: Altitude mapping
-            // Altitude 0° (horizon) → bottom of screen (canvasHeight)
+            // Altitude 0° (horizon) → bottom of screen (logicalH)
             // Altitude 90° (zenith) → top of screen (0)
-            const y = canvasHeight - (alt * scale);
+            const y = logicalH - (alt * scale);
 
             // Check if y is within canvas bounds (with small margin)
-            if (y < -50 || y > canvasHeight + 50) {
+            if (y < -50 || y > logicalH + 50) {
                 return null; // Too far outside vertical bounds
             }
 
@@ -1326,8 +1365,8 @@
             }
 
             reset(starData = null) {
-                this.x = Math.random() * canvas.width;
-                this.y = this.type === 'star' ? Math.random() * canvas.height : -10;
+                this.x = Math.random() * canvasW;
+                this.y = this.type === 'star' ? Math.random() * canvasH : -10;
                 this.size = Math.random() * 2 + 1;
                 this.speedY = this.type === 'star' ? 0 : Math.random() * 2 + 1;
                 this.speedX = this.type === 'star' ? 0 : Math.random() * 0.5 - 0.25;
@@ -1362,7 +1401,7 @@
                     }
 
                     // Altitude factor: 0 (top/zenith) to 1 (bottom/horizon)
-                    this.altitude = canvas.height > 0 ? this.y / canvas.height : 0;
+                    this.altitude = canvasH > 0 ? this.y / canvasH : 0;
 
                     // Altitude-dependent twinkling: low stars twinkle more (atmospheric scintillation)
                     const altSpeedMult = 1 + this.altitude * 0.5; // 1.0x (zenith) to 1.5x (horizon)
@@ -1379,8 +1418,8 @@
 
                 // Shooting star initialization
                 if (this.type === 'shootingStar') {
-                    this.x = Math.random() * canvas.width * 0.8 + canvas.width * 0.2;
-                    this.y = Math.random() * canvas.height * 0.3;
+                    this.x = Math.random() * canvasW * 0.8 + canvasW * 0.2;
+                    this.y = Math.random() * canvasH * 0.3;
                     this.speedX = -(Math.random() * 8 + 6);
                     this.speedY = Math.random() * 4 + 3;
                     this.size = Math.random() * 1.5 + 1;
@@ -1396,8 +1435,8 @@
                     this.depth = Math.random();
 
                     // Wider spawn area (beyond screen edges for wind effect)
-                    this.x = Math.random() * (canvas.width + 400) - 200;
-                    this.y = Math.random() * canvas.height - canvas.height * 0.3;
+                    this.x = Math.random() * (canvasW + 400) - 200;
+                    this.y = Math.random() * canvasH - canvasH * 0.3;
 
                     // Depth-scaled properties: near rain is faster, larger, more opaque
                     const depthScale = 0.4 + this.depth * 0.6; // 0.4 (far) to 1.0 (near)
@@ -1474,7 +1513,7 @@
                     this.trail = this.trail.filter(p => now - p.time < 500);
 
                     // Remove when off-screen and trail is gone
-                    if ((this.life <= 0 || this.x < -100 || this.y > canvas.height + 100) && this.trail.length === 0) {
+                    if ((this.life <= 0 || this.x < -100 || this.y > canvasH + 100) && this.trail.length === 0) {
                         return 'remove';
                     }
                 } else if (this.type === 'snow') {
@@ -1496,7 +1535,7 @@
 
                     this.x += dx;
 
-                    if (this.y > canvas.height) this.reset();
+                    if (this.y > canvasH) this.reset();
                 } else {
                     // Rain falling with wind effect
                     const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind influence
@@ -1505,10 +1544,10 @@
                     this.x += this.speedX + windDrift;
 
                     // Reset if out of bounds (bottom or sides due to wind)
-                    if (this.y > canvas.height || this.x < -300 || this.x > canvas.width + 300) {
+                    if (this.y > canvasH || this.x < -300 || this.x > canvasW + 300) {
                         // Create splash effect when hitting ground (not when blown off-screen)
-                        if (this.y > canvas.height && Math.random() < 0.1) { // 10% chance to create splash (reduced from 30%)
-                            rainSplashes.push(new RainSplash(this.x, canvas.height - 5));
+                        if (this.y > canvasH && Math.random() < 0.1) { // 10% chance to create splash (reduced from 30%)
+                            rainSplashes.push(new RainSplash(this.x, canvasH - 5));
                         }
                         this.reset();
                     }
@@ -1697,8 +1736,8 @@
                 this.vy *= this.damping;
 
                 // Ground collision detection and bounce
-                if (this.y >= canvas.height - 5) {
-                    this.y = canvas.height - 5;
+                if (this.y >= canvasH - 5) {
+                    this.y = canvasH - 5;
 
                     if (this.bounces < this.maxBounces && Math.abs(this.vy) > 0.5) {
                         // Bounce: reverse vertical velocity with energy loss
@@ -1880,8 +1919,8 @@
                 }
 
                 // 配置：画面全体に広く分散（左端から右端まで、上部から下部まで）
-                this.x = Math.random() * (canvas.width * 2.5) - (canvas.width * 0.5);
-                this.y = Math.random() * (canvas.height * 0.7); // Y軸範囲を拡大
+                this.x = Math.random() * (canvasW * 2.5) - (canvasW * 0.5);
+                this.y = Math.random() * (canvasH * 0.7); // Y軸範囲を拡大
 
                 // パララックス速度（3層構造）
                 if (layer === 0) {
@@ -1985,9 +2024,9 @@
                 this.x += this.speed + windEffect;
 
                 // 画面右端から出たら左端へ戻す（シームレスループ）
-                if (this.x > canvas.width + 400) {
+                if (this.x > canvasW + 400) {
                     this.x = -400;
-                    this.y = Math.random() * (canvas.height * 0.7);
+                    this.y = Math.random() * (canvasH * 0.7);
                     // ランダムにミラーリングを変更
                     this.mirrored = Math.random() > 0.5;
                 }
@@ -2336,7 +2375,7 @@
                     const prevComp = ctx.globalCompositeOperation;
                     ctx.globalCompositeOperation = 'overlay';
                     ctx.fillStyle = `rgba(${tintR}, ${tintG}, ${tintB}, ${tintIntensity})`;
-                    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.fillRect(0, 0, canvasW, canvasH);
                     ctx.globalCompositeOperation = prevComp;
                 }
             },
@@ -2360,15 +2399,15 @@
                 // Generate lightning path
                 if (type === 'ground') {
                     // Cloud-to-ground lightning
-                    const startX = Math.random() * canvas.width;
-                    const startY = Math.random() * canvas.height * 0.3;
+                    const startX = Math.random() * canvasW;
+                    const startY = Math.random() * canvasH * 0.3;
                     const endX = startX + (Math.random() - 0.5) * 200;
-                    const endY = canvas.height;
+                    const endY = canvasH;
                     this.generateFractalPath(startX, startY, endX, endY, 0);
                 } else {
                     // Cloud-to-cloud lightning
-                    const startX = Math.random() * canvas.width * 0.5;
-                    const startY = Math.random() * canvas.height * 0.2 + canvas.height * 0.1;
+                    const startX = Math.random() * canvasW * 0.5;
+                    const startY = Math.random() * canvasH * 0.2 + canvasH * 0.1;
                     const endX = startX + 200 + Math.random() * 400;
                     const endY = startY + (Math.random() - 0.5) * 100;
                     this.generateFractalPath(startX, startY, endX, endY, 0);
@@ -2553,7 +2592,7 @@
                         ctx.save();
                         ctx.globalAlpha = maxFlash;
                         ctx.fillStyle = '#aaddff';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillRect(0, 0, canvasW, canvasH);
                         ctx.restore();
                     }
                 }
@@ -2950,8 +2989,8 @@
         // --- Horizon Atmospheric Glow ---
         function drawHorizonGlow() {
             const solarProgress = getSolarProgress();
-            const h = canvas.height;
-            const w = canvas.width;
+            const h = canvasH;
+            const w = canvasW;
             const glowHeight = h * 0.18; // Glow occupies bottom 18%
             const y0 = h - glowHeight;
 
