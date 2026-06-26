@@ -3343,11 +3343,12 @@
             // the rain particles (drawn just beneath it) stay clearly visible.
             const skyCoverOverlay = document.getElementById('sky-cover-overlay');
             if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm') {
-                // Light overcast tint (was 0.9, which hid the rain).
-                skyCoverOverlay.style.opacity = '0.35';
+                // Close to the original look (was 0.9), but a touch lighter so the
+                // rain stays visible beneath it.
+                skyCoverOverlay.style.opacity = '0.7';
             } else if (condition === 'Clouds') {
-                // Very subtle haze for cloudy skies.
-                skyCoverOverlay.style.opacity = '0.2';
+                // Subtle haze for cloudy skies (original value).
+                skyCoverOverlay.style.opacity = '0.3';
             } else {
                 // Fade out: clear sky
                 skyCoverOverlay.style.opacity = '0';
