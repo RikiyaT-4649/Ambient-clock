@@ -3297,14 +3297,16 @@
                 cloudManager.setWeatherCondition(condition || 'Clear');
             }
 
-            // Sky cover overlay control (for rainy weather)
+            // Sky cover overlay control (for rainy weather).
+            // Kept thin now that stars are suppressed during precipitation, so
+            // the rain particles (drawn just beneath it) stay clearly visible.
             const skyCoverOverlay = document.getElementById('sky-cover-overlay');
             if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm') {
-                // Fade in: thick clouds block the stars
-                skyCoverOverlay.style.opacity = '0.9';
+                // Light overcast tint (was 0.9, which hid the rain).
+                skyCoverOverlay.style.opacity = '0.35';
             } else if (condition === 'Clouds') {
-                // Partially block the stars
-                skyCoverOverlay.style.opacity = '0.3';
+                // Very subtle haze for cloudy skies.
+                skyCoverOverlay.style.opacity = '0.2';
             } else {
                 // Fade out: clear sky
                 skyCoverOverlay.style.opacity = '0';
@@ -3325,8 +3327,12 @@
             const now = new Date();
             updateParticleType(now.getHours());
 
-            // Update catalog stars if in night mode (refresh every 60 seconds)
-            if (now.getHours() >= 20 || now.getHours() < 5) {
+            // Refresh catalog stars at night — but NOT during precipitation, so
+            // rain/snow isn't overwritten by stars and the sky stays starless
+            // while it's raining/snowing.
+            const isPrecip = (condition === 'Rain' || condition === 'Drizzle' ||
+                              condition === 'Snow' || condition === 'Thunderstorm');
+            if (!isPrecip && (now.getHours() >= 20 || now.getHours() < 5)) {
                 initializeCatalogStars();
             }
 
