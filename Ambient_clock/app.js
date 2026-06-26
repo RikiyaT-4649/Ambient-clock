@@ -3219,6 +3219,47 @@
 
             // Draw star labels if enabled
             drawStarLabels();
+
+            // Temporary diagnostic HUD (enable by opening the page with #debug)
+            if (_debugHUD && (frameCount % 5 === 0)) updateDebugHUD();
+        }
+
+        // --- Temporary rain/particle diagnostic -------------------------------
+        // Open the app with #debug in the URL to show live internal state.
+        const _debugHUD = location.hash.indexOf('debug') !== -1
+            ? (() => {
+                const d = document.createElement('div');
+                d.id = '_debug-hud';
+                d.style.cssText = 'position:fixed;top:env(safe-area-inset-top,8px);left:8px;z-index:9999;'
+                    + 'background:rgba(0,0,0,0.8);color:#0f0;font:11px/1.4 monospace;'
+                    + 'padding:8px 10px;border-radius:6px;white-space:pre;pointer-events:none;max-width:90vw;';
+                document.body.appendChild(d);
+                return d;
+            })()
+            : null;
+        function updateDebugHUD() {
+            let rainN = 0, starN = 0, snowN = 0, otherN = 0;
+            for (const p of particles) {
+                if (p.type === 'rain') rainN++;
+                else if (p.type === 'star') starN++;
+                else if (p.type === 'snow') snowN++;
+                else otherN++;
+            }
+            const ov = document.getElementById('sky-cover-overlay');
+            const sr = spriteCache.rain;
+            _debugHUD.textContent =
+                'cond=' + weatherState.condition +
+                '  precip=' + weatherState.precipitation +
+                '\ncloudCover=' + weatherState.cloudCover +
+                '  wind=' + weatherState.windSpeed + '/' + weatherState.windDirection +
+                '\ncurType=' + currentParticleType +
+                '  particles=' + particles.length +
+                '\n  rain=' + rainN + ' star=' + starN + ' snow=' + snowN + ' other=' + otherN +
+                '\nrainSprite=' + (sr ? sr.width + 'x' + sr.height : 'NULL') +
+                '\noverlayOpacity=' + (ov ? ov.style.opacity : '?') +
+                '  appLoaded=' + document.body.classList.contains('app-loaded') +
+                '\ncanvas=' + canvas.width + 'x' + canvas.height +
+                '  dprCap=' + RENDER_DPR_CAP;
         }
 
         // Start the animation loop
