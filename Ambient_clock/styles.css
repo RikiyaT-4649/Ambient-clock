@@ -113,7 +113,19 @@
             pointer-events: none;
         }
 
-        /* Sky cover overlay for rainy weather */
+        /* Canvas for clouds — below the overlay so the overlay can darken them */
+        #cloud-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 4; /* Clouds: above stars, below the sky-cover overlay */
+            pointer-events: none;
+        }
+
+        /* Sky cover overlay for rainy weather — over the clouds, under the rain.
+           Stacking order: clouds (4) → overlay (5) → rain/snow (6). */
         #sky-cover-overlay {
             position: absolute;
             top: 0;
@@ -122,19 +134,19 @@
             height: 100%;
             background: linear-gradient(to bottom, #0a0e1a 0%, #141824 100%);
             opacity: 0;
-            z-index: 4; /* Between stars (3) and clouds (5) */
+            z-index: 5; /* Above clouds, below precipitation */
             pointer-events: none;
             transition: opacity 2s ease;
         }
 
-        /* Canvas for clouds */
-        #cloud-canvas {
+        /* Canvas for precipitation (rain/snow/splashes) — frontmost weather layer */
+        #precip-canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 5; /* Clouds layer (above moon/sun and stars) */
+            z-index: 6; /* In front of the overlay so rain is never dimmed */
             pointer-events: none;
         }
 
@@ -912,6 +924,7 @@
 body:not(.app-loaded) #celestial-body,
 body:not(.app-loaded) #particle-canvas,
 body:not(.app-loaded) #cloud-canvas,
+body:not(.app-loaded) #precip-canvas,
 body:not(.app-loaded) #sky-cover-overlay {
     opacity: 0 !important;
     visibility: hidden !important;

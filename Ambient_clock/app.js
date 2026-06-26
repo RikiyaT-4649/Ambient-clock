@@ -1135,6 +1135,11 @@
         const cloudCanvas = document.getElementById('cloud-canvas');
         const cloudCtx = cloudCanvas.getContext('2d');
 
+        // Precipitation canvas (rain/snow/splashes) — frontmost weather layer,
+        // sits above the sky-cover overlay so rain is never dimmed by it.
+        const precipCanvas = document.getElementById('precip-canvas');
+        const precipCtx = precipCanvas.getContext('2d');
+
         // Sin/Cos lookup table (1024 entries, ~0.35° precision)
         const LUT_SIZE = 1024;
         const LUT_MASK = LUT_SIZE - 1;
@@ -1228,6 +1233,12 @@
             cloudCanvas.style.width = canvasW + 'px';
             cloudCanvas.style.height = canvasH + 'px';
             cloudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            precipCanvas.width = canvasW * dpr;
+            precipCanvas.height = canvasH * dpr;
+            precipCanvas.style.width = canvasW + 'px';
+            precipCanvas.style.height = canvasH + 'px';
+            precipCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         resizeCanvas();
 
@@ -1617,18 +1628,21 @@
 
             draw() {
                 // Rain and snow use sprite cache — no save/restore needed
+                // Rain & snow draw on the PRECIP canvas — the frontmost weather
+                // layer, above clouds AND the sky-cover overlay (clouds → overlay
+                // → rain), so precipitation is in front and never dimmed.
                 if (this.type === 'snow') {
-                    ctx.globalAlpha = this.opacity;
+                    precipCtx.globalAlpha = this.opacity;
                     const sprite = spriteCache.snow[this.spriteIndex || 0];
-                    ctx.drawImage(sprite.canvas, this.x - sprite.dim / 2, this.y - sprite.dim / 2);
+                    precipCtx.drawImage(sprite.canvas, this.x - sprite.dim / 2, this.y - sprite.dim / 2);
                     return;
                 }
                 if (this.type === 'rain') {
-                    ctx.globalAlpha = this.opacity;
+                    precipCtx.globalAlpha = this.opacity;
                     const scale = this.size * 0.9 + 0.3;
                     const sw = spriteCache.rain.width * scale;
                     const sh = spriteCache.rain.height * scale;
-                    ctx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
+                    precipCtx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
                     return;
                 }
 
@@ -1824,11 +1838,12 @@
             }
 
             draw() {
-                // Sprite-cached droplet (no per-frame gradient)
-                ctx.globalAlpha = this.opacity;
+                // Sprite-cached droplet (no per-frame gradient). Drawn on the
+                // precip canvas so splashes sit with the rain, in front of clouds.
+                precipCtx.globalAlpha = this.opacity;
                 const dim = spriteCache.splashDroplet.width;
                 const scale = this.size * 0.5;
-                ctx.drawImage(spriteCache.splashDroplet, this.x - dim * scale / 2, this.y - dim * scale / 2, dim * scale, dim * scale);
+                precipCtx.drawImage(spriteCache.splashDroplet, this.x - dim * scale / 2, this.y - dim * scale / 2, dim * scale, dim * scale);
             }
         }
 
@@ -3156,6 +3171,7 @@
 
             ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
             cloudCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            precipCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
             // Atmospheric glow at horizon (drawn first, behind particles)
             drawHorizonGlow();
@@ -3208,7 +3224,7 @@
                     }
                 }
                 rainSplashes.length = sIdx;
-                ctx.globalAlpha = 1;
+                precipCtx.globalAlpha = 1;
             }
 
             // NEW: Update and draw lightning (ON TOP of everything)
