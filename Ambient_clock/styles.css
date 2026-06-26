@@ -79,6 +79,15 @@
             -webkit-tap-highlight-color: transparent;
             touch-action: none;
             overscroll-behavior: none;
+            /* iOS Safari: lock the document so a swipe can't rubber-band-scroll
+               the page and reveal the black background behind it. position:fixed
+               + inset:0 makes the page completely non-scrollable. */
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overscroll-behavior-y: none;
         }
 
         /* Background area */
@@ -284,7 +293,8 @@
         /* Control panel */
         #controls-wrapper {
             position: absolute;
-            bottom: var(--control-bottom);
+            /* Keep the bar clear of the home indicator / rounded corners. */
+            bottom: calc(var(--control-bottom) + env(safe-area-inset-bottom, 0px));
             left: 0;
             width: 100%;
             display: flex;
@@ -298,8 +308,13 @@
             padding: var(--control-padding);
             border-radius: var(--control-border-radius);
             display: flex;
+            /* Wrap to a second row on very narrow phones instead of being
+               clipped at the screen edges. */
+            flex-wrap: wrap;
+            justify-content: center;
             gap: var(--control-gap);
             align-items: center;
+            max-width: 96vw;
             box-shadow:
                 0 10px 40px rgba(0,0,0,0.6),
                 0 0 60px rgba(255,255,255,0.05);
@@ -496,8 +511,9 @@
         /* Tools panel (Pomodoro and Alarm) */
         #tools-panel {
             position: absolute;
-            top: var(--tools-panel-top);
-            right: var(--tools-panel-right);
+            /* Clear of the notch (top) and curved right edge. */
+            top: calc(var(--tools-panel-top) + env(safe-area-inset-top, 0px));
+            right: calc(var(--tools-panel-right) + env(safe-area-inset-right, 0px));
             background: rgba(0, 0, 0, 0.8);
             border-radius: var(--tools-panel-border-radius);
             padding: var(--tools-panel-padding);
@@ -602,8 +618,8 @@
 
         .shortcut-hint {
             position: absolute;
-            bottom: var(--shortcut-hint-bottom);
-            right: var(--shortcut-hint-right);
+            bottom: calc(var(--shortcut-hint-bottom) + env(safe-area-inset-bottom, 0px));
+            right: calc(var(--shortcut-hint-right) + env(safe-area-inset-right, 0px));
             background: rgba(0, 0, 0, 0.65);
             padding: var(--shortcut-hint-padding);
             border-radius: var(--shortcut-hint-border-radius);
@@ -914,5 +930,28 @@ body:not(.app-loaded) #sky-cover-overlay {
     }
     #tools-panel {
         transition: opacity 0.2s !important;
+    }
+}
+
+/* Touch devices (phones/tablets): :hover states "stick" after a tap, leaving
+   icons enlarged/rotated. Neutralize hover transforms and give a brief press
+   feedback instead. Also hide the keyboard-shortcut hint, which is meaningless
+   without a physical keyboard. */
+@media (hover: none) {
+    .icon:hover,
+    .btn-text:hover,
+    .tool-btn:hover,
+    input[type="range"]:hover {
+        transform: none;
+    }
+    .icon:active {
+        transform: scale(0.9);
+    }
+    .btn-text:active,
+    .tool-btn:active {
+        transform: scale(0.96);
+    }
+    .shortcut-hint {
+        display: none !important;
     }
 }

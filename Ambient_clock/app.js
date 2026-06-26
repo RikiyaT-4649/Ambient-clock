@@ -3,6 +3,8 @@
             condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
             temp: null,
             windSpeed: 0,
+            windDirection: null,    // Direction wind comes FROM, degrees (meteorological)
+            windHoriz: 1,           // Precomputed horizontal screen push: -1 (left) .. +1 (right)
             cloudCover: 0,          // Cloud coverage (0-100%)
             precipitation: 0,       // Precipitation rate (mm/h)
             moonPhase: 0.5,
@@ -91,6 +93,17 @@
                 // Failed to fetch city name
                 return 'Unknown Location';
             }
+        }
+
+        // Store wind direction and precompute its horizontal screen component
+        // ONCE per weather update, so the animation loop never does trig.
+        // Meteorological direction = where wind blows FROM. West wind (270°)
+        // moves air east → rightward (+x). East component = -sin(dirFrom).
+        function applyWindDirection(dirDeg) {
+            weatherState.windDirection = (typeof dirDeg === 'number') ? dirDeg : null;
+            weatherState.windHoriz = (typeof dirDeg === 'number')
+                ? -Math.sin(dirDeg * Math.PI / 180)
+                : 1; // No data → gentle rightward drift
         }
 
         // Map Open-Meteo weather codes to conditions
@@ -186,7 +199,7 @@
                 return null;
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,winddirection_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
                 const response = await fetch(url);
@@ -216,6 +229,7 @@
                     condition: mapWeatherCode(data.current.weathercode),
                     temp: data.current.temperature_2m,
                     windSpeed: data.current.windspeed_10m, // 風速 (km/h)
+                    windDirection: data.current.winddirection_10m, // 風向 (度, 吹いてくる方向)
                     cloudCover: cloudCover, // 雲量 (0-100%)
                     precipitation: data.current.precipitation || 0, // 降水量 (mm/h)
                     sunrise: data.daily.sunrise[0],
@@ -288,6 +302,7 @@
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
+                    applyWindDirection(weather.windDirection);
                     if (typeof updateRainSprite === 'function') updateRainSprite();
                     weatherState.cloudCover = weather.cloudCover;
                     weatherState.precipitation = weather.precipitation;
@@ -336,6 +351,7 @@
                     weatherState.condition = weather.condition;
                     weatherState.temp = weather.temp;
                     weatherState.windSpeed = weather.windSpeed;
+                    applyWindDirection(weather.windDirection);
                     if (typeof updateRainSprite === 'function') updateRainSprite();
                     weatherState.cloudCover = weather.cloudCover;
                     weatherState.precipitation = weather.precipitation;
@@ -1251,6 +1267,19 @@
             _resizeTimer = setTimeout(onResizeComplete, 200);
         }, { passive: true });
 
+        // iOS: 'resize' alone can miss orientation flips and the address-bar
+        // show/hide, leaving black bars where the canvas didn't catch up.
+        // Re-sync on orientationchange and on visualViewport changes too.
+        window.addEventListener('orientationchange', () => {
+            resizeCanvas();
+            clearTimeout(_resizeTimer);
+            // Fire twice: once now, once after iOS settles the new viewport.
+            _resizeTimer = setTimeout(() => { resizeCanvas(); onResizeComplete(); }, 300);
+        }, { passive: true });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', resizeCanvas, { passive: true });
+        }
+
         // ===== HIPPARCOS COORDINATE TRANSFORMATION UTILITIES =====
 
         // Calculate Greenwich Mean Sidereal Time in hours
@@ -1548,7 +1577,8 @@
                     }
                 } else if (this.type === 'snow') {
                     // Snow movement with enhanced dual sine wave drift (LUT-optimized)
-                    const windDrift = (weatherState.windSpeed || 0) * 0.05;
+                    // windHoriz gives the real wind direction (sign + strength).
+                    const windDrift = (weatherState.windSpeed || 0) * (weatherState.windHoriz || 0) * 0.05;
 
                     this.driftOffset += this.driftSpeed;
                     this.driftOffset2 += this.driftSpeed2;
@@ -1567,8 +1597,9 @@
 
                     if (this.y > canvasH) this.reset();
                 } else {
-                    // Rain falling with wind effect
-                    const windDrift = (weatherState.windSpeed || 0) * 0.3; // Increased wind influence
+                    // Rain falling with wind effect — slants in the real wind
+                    // direction (windHoriz is signed: +right / -left).
+                    const windDrift = (weatherState.windSpeed || 0) * (weatherState.windHoriz || 0) * 0.3;
 
                     this.y += this.speedY;
                     this.x += this.speedX + windDrift;
@@ -1953,12 +1984,17 @@
                 this.y = Math.random() * (canvasH * 0.7); // Y軸範囲を拡大
 
                 // パララックス速度（3層構造）
+                // windFactor: how strongly wind pushes this layer. Near clouds
+                // react most, far clouds least — preserves depth (parallax).
                 if (layer === 0) {
                     this.speed = 0.05; // 遠景 - 遅い
+                    this.windFactor = 0.35;
                 } else if (layer === 1) {
                     this.speed = 0.13; // 中景 - 中間（元のLayer 2の速度）
+                    this.windFactor = 0.65;
                 } else if (layer === 2) {
                     this.speed = 0.40; // 近景 - 速い
+                    this.windFactor = 1.0;
                 }
 
                 // サイズ：遠景は大きく、近景は小さく（遠近感）- バリエーション拡大
@@ -2047,17 +2083,30 @@
                         this.saturation *= 0.6;
                         break;
                 }
+
+                // Density scales with the real cloud-cover %: thin/wispy when
+                // partly cloudy, thick when overcast. (Set once at creation —
+                // no per-frame cost.)
+                const cover = Math.max(0, Math.min(100, weatherState.cloudCover || 0));
+                const densityFactor = 0.6 + (cover / 100) * 0.6; // 0.6x .. 1.2x
+                this.baseOpacity *= densityFactor;
             }
 
             update() {
-                const windEffect = (weatherState.windSpeed || 0) * 0.2;
-                this.x += this.speed + windEffect;
+                // Gentle baseline drift + real wind (precomputed, per-layer).
+                // Clouds can now drift either direction depending on real wind.
+                const wind = (cloudManager.windPush || 0) * this.windFactor;
+                this.x += this.speed + wind;
 
-                // 画面右端から出たら左端へ戻す（シームレスループ）
-                if (this.x > canvasW + 400) {
-                    this.x = -400;
+                // Seamless wrap on whichever edge the cloud exits.
+                const margin = 400;
+                if (this.x > canvasW + margin) {
+                    this.x = -margin;
                     this.y = Math.random() * (canvasH * 0.7);
-                    // ランダムにミラーリングを変更
+                    this.mirrored = Math.random() > 0.5;
+                } else if (this.x < -margin) {
+                    this.x = canvasW + margin;
+                    this.y = Math.random() * (canvasH * 0.7);
                     this.mirrored = Math.random() > 0.5;
                 }
             }
@@ -2340,16 +2389,25 @@
                         Math.max(4, baseCount - 1)
                     ];
                 } else {
-                    // Use actual cloud cover percentage to determine count
-                    // 0% = minimal clouds, 100% = maximum clouds
-                    const totalClouds = Math.floor(cloudCover * 0.3); // 0-30 clouds max (軽量化)
+                    // Faithfully track the real cloud-cover percentage.
+                    // ~0% = clear sky (no/almost no clouds), 100% = fully overcast.
+                    // Capped at 28 clouds total to stay light.
+                    const cover = Math.max(0, Math.min(100, cloudCover));
+                    const totalClouds = Math.round((cover / 100) * 28);
 
-                    // Layer distribution: 3層に分散（Layer 0, 2, 4相当）
-                    cloudCount = [
-                        Math.max(1, Math.floor(totalClouds * 0.30)), // Layer 0 (最奥・遠景) - 30%
-                        Math.max(1, Math.floor(totalClouds * 0.40)), // Layer 2 (中央) - 40%
-                        Math.max(1, Math.floor(totalClouds * 0.30))  // Layer 4 (最前・近景) - 30%
-                    ];
+                    if (totalClouds <= 0) {
+                        // Genuinely clear sky → leave it empty for realism.
+                        cloudCount = [0, 0, 0];
+                    } else {
+                        // Distribute across the 3 parallax layers (30/40/30).
+                        // Only guarantee a cloud in a layer once there's real cover,
+                        // so a clear sky never shows stray clouds.
+                        cloudCount = [
+                            Math.max(1, Math.round(totalClouds * 0.30)), // far
+                            Math.max(1, Math.round(totalClouds * 0.40)), // mid
+                            Math.max(1, Math.round(totalClouds * 0.30))  // near
+                        ];
+                    }
                 }
 
                 // Create clouds for each layer
@@ -2366,6 +2424,13 @@
 
             updateClouds() {
                 if (!this.initialized) return;
+
+                // Precompute the horizontal wind push ONCE per update (shared by
+                // every cloud) so per-cloud update() stays trig-free and cheap.
+                // windHoriz (-1..+1) is the real wind direction; windSpeed (km/h)
+                // its strength. 0.015 keeps motion gentle and readable.
+                this.windPush = (weatherState.windSpeed || 0) *
+                                (weatherState.windHoriz || 0) * 0.015;
 
                 // Update all clouds in all layers
                 for (let layer of this.layers) {
@@ -3415,27 +3480,48 @@
         // --- 8. Wake Lock & Fullscreen ---
         const wakeLockBtn = document.getElementById('btn-wakelock');
         let wakeLock = null;
+        let wakeLockDesired = false; // User's intent (survives system auto-release)
+
+        async function requestWakeLock() {
+            if (!('wakeLock' in navigator) || wakeLock) return;
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => {
+                    wakeLock = null;
+                    // iOS releases the lock when backgrounded. Only show OFF if
+                    // the user actually turned it off; otherwise we re-acquire
+                    // on return (see visibilitychange below).
+                    if (!wakeLockDesired) {
+                        wakeLockBtn.textContent = "Always On OFF";
+                        wakeLockBtn.classList.remove('active');
+                    }
+                });
+            } catch (err) { /* WakeLock not supported or failed */ }
+        }
 
         async function toggleWakeLock() {
-            if ('wakeLock' in navigator) {
-                if (!wakeLock) {
-                    try {
-                        wakeLock = await navigator.wakeLock.request('screen');
-                        wakeLockBtn.textContent = "Always On ON";
-                        wakeLockBtn.classList.add('active');
-                        wakeLock.addEventListener('release', () => {
-                            wakeLock = null;
-                            wakeLockBtn.textContent = "Always On OFF";
-                            wakeLockBtn.classList.remove('active');
-                        });
-                    } catch (err) { /* WakeLock not supported or failed */ }
-                } else {
-                    wakeLock.release();
-                    wakeLock = null;
-                }
+            if (!('wakeLock' in navigator)) return;
+            if (!wakeLockDesired) {
+                wakeLockDesired = true;
+                wakeLockBtn.textContent = "Always On ON";
+                wakeLockBtn.classList.add('active');
+                await requestWakeLock();
+            } else {
+                wakeLockDesired = false;
+                wakeLockBtn.textContent = "Always On OFF";
+                wakeLockBtn.classList.remove('active');
+                if (wakeLock) { wakeLock.release(); wakeLock = null; }
             }
         }
         wakeLockBtn.addEventListener('click', toggleWakeLock);
+
+        // Re-acquire the wake lock when returning to the app, since the system
+        // drops it on background — keeps "Always On" actually staying on.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && wakeLockDesired) {
+                requestWakeLock();
+            }
+        });
 
         // Digital/Analog clock toggle
         const clockToggleBtn = document.getElementById('btn-clock-toggle');
@@ -3667,7 +3753,13 @@
         function toggleToolsPanel() {
             toolsPanelVisible = !toolsPanelVisible;
             document.getElementById('tools-panel').classList.toggle('visible', toolsPanelVisible);
+            const tb = document.getElementById('btn-tools');
+            if (tb) tb.classList.toggle('active', toolsPanelVisible);
         }
+
+        // Tap target so phones (no keyboard) can open Pomodoro/Alarm.
+        const toolsBtn = document.getElementById('btn-tools');
+        if (toolsBtn) toolsBtn.addEventListener('click', toggleToolsPanel);
 
         function toggleUI() {
             const controls = document.getElementById('controls-wrapper');
