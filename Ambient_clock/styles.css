@@ -159,10 +159,12 @@
             font-size: var(--clock-font-size);
             font-weight: 200;
             letter-spacing: 0.05em;
+            /* Smaller blur radii: repainted every second with the clock,
+               so cheaper to rasterize. Layers/look kept near-identical. */
             text-shadow:
-                0 4px 40px rgba(0, 0, 0, 0.35),
-                0 0 30px rgba(0, 0, 0, 0.4),
-                0 0 50px rgba(255, 255, 255, 0.12);
+                0 2px 22px rgba(0, 0, 0, 0.38),
+                0 0 18px rgba(0, 0, 0, 0.42),
+                0 0 26px rgba(255, 255, 255, 0.12);
 
             /* Important: Fixed-width numbers */
             font-feature-settings: "tnum";
@@ -179,9 +181,9 @@
             letter-spacing: 0.2em;
             text-transform: uppercase;
             text-shadow:
-                0 2px 20px rgba(0, 0, 0, 0.35),
-                0 0 25px rgba(0, 0, 0, 0.3),
-                0 0 30px rgba(255, 255, 255, 0.10);
+                0 2px 14px rgba(0, 0, 0, 0.38),
+                0 0 16px rgba(0, 0, 0, 0.32),
+                0 0 18px rgba(255, 255, 255, 0.10);
             color: #ffffff;
         }
 
@@ -316,6 +318,14 @@
             opacity: 0;
             transform: translateY(20px); /* Fade out downward */
             pointer-events: none;
+        }
+
+        /* Standby: when controls fade out (idle), stop the infinite
+           float/pulse animations so nothing repaints while invisible.
+           No visual change — these elements are at opacity 0 here. */
+        #controls-wrapper.fade-out #controls,
+        #controls-wrapper.fade-out .icon.active {
+            animation-play-state: paused;
         }
 
         /* Sound and brightness controls */

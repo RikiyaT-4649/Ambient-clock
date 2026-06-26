@@ -262,6 +262,14 @@
         // Initialize weather system
         // Track last weather update to prevent duplicate updates
         let lastWeatherUpdate = { date: null, hour: null };
+        let lastWeatherFetchMs = 0;
+        // How often to auto-refresh weather. Kept at 30 min to stay well within
+        // Open-Meteo's free per-IP limits (10k/day) even when several devices
+        // share one network, while still reflecting real conditions all day.
+        const WEATHER_REFRESH_MS = 30 * 60 * 1000; // 30 minutes
+        // Per-device random jitter (0-90s) added to the interval so multiple
+        // phones don't all hit the API in the same minute (per-minute cap).
+        const WEATHER_REFRESH_JITTER_MS = Math.floor(Math.random() * 90 * 1000);
 
         async function initWeather() {
             try {
@@ -308,6 +316,7 @@
 
                     // Record initial update time
                     lastWeatherUpdate = { date: now.toDateString(), hour: now.getHours() };
+                    lastWeatherFetchMs = Date.now();
                 }
             } catch (error) {
                 // Weather initialization failed
@@ -349,29 +358,39 @@
                     const now = new Date();
                     lastWeatherUpdate.date = now.toDateString();
                     lastWeatherUpdate.hour = now.getHours();
+                    lastWeatherFetchMs = Date.now();
                 }
             } catch (error) {
                 // Failed to update weather
             }
         }
 
-        // Check if weather should be updated (at 7:00 and 18:00)
+        // Check if weather should be auto-refreshed.
+        // Refreshes whenever the configured interval has elapsed since the last
+        // successful fetch, so the screen reflects current conditions all day.
         function checkWeatherUpdate() {
-            const now = new Date();
-            const currentHour = now.getHours();
-            const currentDate = now.toDateString();
-
-            // Update at 7:00 and 18:00
-            if ((currentHour === 7 || currentHour === 18)) {
-                // Prevent duplicate updates within the same hour
-                if (lastWeatherUpdate.date !== currentDate || lastWeatherUpdate.hour !== currentHour) {
-                    updateWeather();
-                }
+            if (!weatherState.coords) return; // No location yet (initWeather not done)
+            // Don't fetch while the app is backgrounded / phone is locked — saves
+            // API calls; the visibilitychange handler refreshes on return.
+            if (document.visibilityState !== 'visible') return;
+            if (Date.now() - lastWeatherFetchMs >= WEATHER_REFRESH_MS + WEATHER_REFRESH_JITTER_MS) {
+                updateWeather();
             }
         }
 
         // Start weather update checker (runs every minute)
         setInterval(checkWeatherUpdate, 60000); // Check every 60 seconds
+
+        // Refresh as soon as the app becomes visible again (e.g. unlocking the
+        // phone or switching back to the tab) if the data is older than 5 min,
+        // so reopening never shows stale weather.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' &&
+                weatherState.coords &&
+                Date.now() - lastWeatherFetchMs >= 5 * 60 * 1000) {
+                updateWeather();
+            }
+        });
 
 
         // --- 2. Clock Logic + Time of Day System ---
@@ -1166,8 +1185,19 @@
         let canvasH = window.innerHeight;
 
         // Canvas size settings (cap dpr at 2 to balance sharpness and performance)
+        // Adaptive render-resolution cap for performance on low-spec devices.
+        // Computed once: low-RAM / low-core / very small phones render at 1x,
+        // everything else caps at 1.5x. Clouds (blurred) and small particles
+        // look virtually identical at these caps while fill-rate drops sharply.
+        const RENDER_DPR_CAP = (function () {
+            const mem = navigator.deviceMemory || 4;        // GB (undefined on iOS Safari → assume 4)
+            const cores = navigator.hardwareConcurrency || 4;
+            const isLowEnd = mem <= 3 || cores <= 4;
+            return isLowEnd ? 1 : 1.5;
+        })();
+
         function resizeCanvas() {
-            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const dpr = Math.min(window.devicePixelRatio || 1, RENDER_DPR_CAP);
             canvasW = window.innerWidth;
             canvasH = window.innerHeight;
 
@@ -3031,15 +3061,22 @@
                     ctx.fillRect(0, 0, w, h);
                 }
             } else {
-                // Nighttime: very faint navy atmospheric glow
-                const grad = ctx.createLinearGradient(0, h, 0, y0);
-                grad.addColorStop(0, 'rgba(20, 30, 60, 0.08)');
-                grad.addColorStop(0.5, 'rgba(15, 20, 50, 0.03)');
-                grad.addColorStop(1, 'rgba(10, 15, 40, 0)');
-                ctx.fillStyle = grad;
+                // Nighttime: very faint navy atmospheric glow.
+                // This branch runs every frame, so cache the (size-only) gradient
+                // instead of recreating it each tick. Rebuilt on canvas resize.
+                if (!_nightGlowGrad || _nightGlowGradH !== h) {
+                    const grad = ctx.createLinearGradient(0, h, 0, y0);
+                    grad.addColorStop(0, 'rgba(20, 30, 60, 0.08)');
+                    grad.addColorStop(0.5, 'rgba(15, 20, 50, 0.03)');
+                    grad.addColorStop(1, 'rgba(10, 15, 40, 0)');
+                    _nightGlowGrad = grad;
+                    _nightGlowGradH = h;
+                }
+                ctx.fillStyle = _nightGlowGrad;
                 ctx.fillRect(0, y0, w, glowHeight);
             }
         }
+        let _nightGlowGrad = null, _nightGlowGradH = -1;
 
         // Animation loop - 10fps target using setTimeout + rAF (no idle polling)
         let frameCount = 0;
@@ -3172,13 +3209,13 @@
                     initializeCatalogStars();
                 }
             } else {
-                if (currentParticleType !== 'none' && particles.length > 0 && currentParticleType !== 'rain') {
-                    // Keep rain if manually activated (audio controls disabled for now)
-                    // AUDIO CONTROLS - Temporarily disabled for release
-                    // if (!document.getElementById('btn-rain').classList.contains('active')) {
-                        particles = [];
-                        currentParticleType = 'none';
-                    // }
+                // Daytime + non-rainy/snowy weather: clear any leftover particles
+                // (including rain) so the screen matches the current conditions.
+                // The old "keep rain" guard was for the now-disabled manual rain
+                // button and caused rain to linger after the weather cleared.
+                if (currentParticleType !== 'none' && particles.length > 0) {
+                    particles = [];
+                    currentParticleType = 'none';
                 }
             }
         }
@@ -3365,11 +3402,14 @@
             }
         });
 
-        // Browser autoplay block workaround: Start active sounds on first click anywhere
+        // AUDIO CONTROLS - Temporarily disabled for release
+        // (bonfire/rain autoplay workaround removed; rain sound is handled by btn-sound below)
+        /*
         document.body.addEventListener('click', () => {
             if(bonfire.btn.classList.contains('active') && bonfire.audio.paused) bonfire.audio.play();
             if(rain.btn.classList.contains('active') && rain.audio.paused) rain.audio.play();
         }, { once: true });
+        */
 
 
         // --- 8. Wake Lock & Fullscreen ---
@@ -3439,6 +3479,7 @@
                 soundBtn.classList.add('active');
                 // 雨が降っている場合は即座に再生
                 if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle') {
+                    rainAudio.play().catch(() => {});
                 }
             } else {
                 soundBtn.classList.remove('active');
@@ -3453,6 +3494,7 @@
             const isRaining = weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle';
 
             if (isRaining && rainAudio.paused) {
+                rainAudio.play().catch(() => {});
             } else if (!isRaining && !rainAudio.paused) {
                 rainAudio.pause();
             }
