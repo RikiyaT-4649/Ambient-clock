@@ -3275,7 +3275,14 @@
                     const rainButton = document.getElementById('btn-rain');
                     const rainButtonActive = rainButton ? rainButton.classList.contains('active') : false;
 
-                    if (currentParticleType !== 'rain' && !rainButtonActive) {
+                    // (Re)create rain when we're not already showing it, OR when
+                    // the particle array is empty for any reason. The empty-check
+                    // is what makes a weather REFRESH reliably restore rain:
+                    // previously rain was only built on the star→rain transition,
+                    // so an in-place update (type already 'rain') never rebuilt it
+                    // and the screen stayed dry until a full page reload.
+                    const needRain = (currentParticleType !== 'rain') || (particles.length === 0);
+                    if (needRain && !rainButtonActive) {
                         // Calculate rain intensity based on actual precipitation rate (logarithmic scale)
                         let rainCount;
 
@@ -3297,8 +3304,8 @@
                     }
                     return;
                 } else if (weatherState.condition === 'Snow') {
-                    // Show snow particles for snowy weather
-                    if (currentParticleType !== 'snow') {
+                    // Show snow particles for snowy weather (self-healing like rain)
+                    if (currentParticleType !== 'snow' || particles.length === 0) {
                         createParticles('snow', 120);
                     }
                     return;
@@ -3343,9 +3350,8 @@
             // the rain particles (drawn just beneath it) stay clearly visible.
             const skyCoverOverlay = document.getElementById('sky-cover-overlay');
             if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm') {
-                // Close to the original look (was 0.9), but a touch lighter so the
-                // rain stays visible beneath it.
-                skyCoverOverlay.style.opacity = '0.7';
+                // Original overcast depth.
+                skyCoverOverlay.style.opacity = '0.9';
             } else if (condition === 'Clouds') {
                 // Subtle haze for cloudy skies (original value).
                 skyCoverOverlay.style.opacity = '0.3';
