@@ -84,6 +84,10 @@
 
             <div class="divider"></div>
 
+            <div class="icon" id="btn-info" title="Weather parameters">ℹ️</div>
+
+            <div class="divider"></div>
+
             <button class="btn-text" id="btn-wakelock">Always On OFF</button>
         </div>
     </div>
@@ -106,6 +110,20 @@
                 <button class="tool-btn" id="alarm-toggle">ON</button>
             </div>
         </div>
+    </div>
+
+    <!-- Weather parameters panel (drivers of the visual effects) -->
+    <div id="info-panel">
+        <div class="info-title">Live conditions</div>
+        <div class="info-row"><span>Weather</span><b id="info-condition">—</b></div>
+        <div class="info-row"><span>Precipitation</span><b id="info-precip">—</b></div>
+        <div class="info-row"><span>Wind speed</span><b id="info-wind">—</b></div>
+        <div class="info-row"><span>Wind direction</span><b id="info-winddir">—</b></div>
+        <div class="info-row"><span>Cloud cover</span><b id="info-cloud">—</b></div>
+        <div class="info-row"><span>Temperature</span><b id="info-temp">—</b></div>
+        <div class="info-divider"></div>
+        <div class="info-row"><span>Rain particles</span><b id="info-rain-count">—</b></div>
+        <div class="info-note">Updated every 15 min from Open-Meteo.</div>
     </div>
 
     <!-- Shortcut hints -->

@@ -475,6 +475,12 @@
                 updateAnalogClock(now);
             }
 
+            // Keep the live-parameters panel current while it's open.
+            if (typeof updateInfoPanel === 'function') {
+                const ip = document.getElementById('info-panel');
+                if (ip && ip.classList.contains('visible')) updateInfoPanel();
+            }
+
             // 背景と天体の更新は1分ごとに実行（チカチカ防止）
             const currentMinute = now.getMinutes();
             if (currentMinute !== lastUpdateMinute) {
@@ -3283,49 +3289,46 @@
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
-            // Priority 1: Weather-based particles (if weather is available)
-            if (weatherState.condition) {
-                if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle' || weatherState.condition === 'Thunderstorm') {
-                    // Show rain particles for rainy weather (unless manual rain button overrides)
-                    // AUDIO CONTROLS - Temporarily disabled for release
-                    const rainButton = document.getElementById('btn-rain');
-                    const rainButtonActive = rainButton ? rainButton.classList.contains('active') : false;
+            // Priority 1: Weather-based particles.
+            // It counts as raining if the weather CODE says so OR there is
+            // measurable precipitation. Open-Meteo sometimes reports light rain
+            // as "Clouds" while precipitation > 0, which previously made rain
+            // vanish after a refresh even though it was still raining. Snow is
+            // checked first so snowfall is never misread as rain.
+            const cond = weatherState.condition;
+            const precipNow = (weatherState.precipitation || 0) > 0;
 
-                    // (Re)create rain when we're not already showing it, OR when
-                    // the particle array is empty for any reason. The empty-check
-                    // is what makes a weather REFRESH reliably restore rain:
-                    // previously rain was only built on the star→rain transition,
-                    // so an in-place update (type already 'rain') never rebuilt it
-                    // and the screen stayed dry until a full page reload.
-                    const needRain = (currentParticleType !== 'rain') || (particles.length === 0);
-                    if (needRain && !rainButtonActive) {
-                        // Calculate rain intensity based on actual precipitation rate (logarithmic scale)
-                        let rainCount;
-
-                        // If we have precipitation data, use it for realistic particle count
-                        if (weatherState.precipitation > 0) {
-                            rainCount = calculateRainParticles(weatherState.precipitation);
-                        } else {
-                            // Fallback: use weather condition if precipitation data unavailable
-                            if (weatherState.condition === 'Drizzle') {
-                                rainCount = 100; // Light drizzle (reduced from 200)
-                            } else if (weatherState.condition === 'Thunderstorm') {
-                                rainCount = 250; // Heavy rain during storm (reduced from 450)
-                            } else {
-                                rainCount = 180; // Moderate rain (reduced from 350)
-                            }
-                        }
-
-                        createParticles('rain', rainCount);
-                    }
-                    return;
-                } else if (weatherState.condition === 'Snow') {
-                    // Show snow particles for snowy weather (self-healing like rain)
-                    if (currentParticleType !== 'snow' || particles.length === 0) {
-                        createParticles('snow', 120);
-                    }
-                    return;
+            if (cond === 'Snow') {
+                // Show snow particles for snowy weather (self-healing).
+                if (currentParticleType !== 'snow' || particles.length === 0) {
+                    createParticles('snow', 120);
                 }
+                return;
+            }
+
+            if (cond === 'Rain' || cond === 'Drizzle' || cond === 'Thunderstorm' || precipNow) {
+                // AUDIO CONTROLS - Temporarily disabled for release
+                const rainButton = document.getElementById('btn-rain');
+                const rainButtonActive = rainButton ? rainButton.classList.contains('active') : false;
+
+                // (Re)create rain when we're not already showing it, OR when the
+                // particle array is empty for any reason (makes a refresh reliably
+                // restore rain).
+                const needRain = (currentParticleType !== 'rain') || (particles.length === 0);
+                if (needRain && !rainButtonActive) {
+                    let rainCount;
+                    if (weatherState.precipitation > 0) {
+                        rainCount = calculateRainParticles(weatherState.precipitation);
+                    } else if (cond === 'Drizzle') {
+                        rainCount = 100;
+                    } else if (cond === 'Thunderstorm') {
+                        rainCount = 250;
+                    } else {
+                        rainCount = 180; // Moderate rain
+                    }
+                    createParticles('rain', rainCount);
+                }
+                return;
             }
 
             // Priority 2: Time-based particles (stars at night)
@@ -3365,7 +3368,8 @@
             // Kept thin now that stars are suppressed during precipitation, so
             // the rain particles (drawn just beneath it) stay clearly visible.
             const skyCoverOverlay = document.getElementById('sky-cover-overlay');
-            if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm') {
+            const precipNow = (weatherState.precipitation || 0) > 0;
+            if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm' || precipNow) {
                 // Original overcast depth.
                 skyCoverOverlay.style.opacity = '0.9';
             } else if (condition === 'Clouds') {
@@ -3395,7 +3399,8 @@
             // rain/snow isn't overwritten by stars and the sky stays starless
             // while it's raining/snowing.
             const isPrecip = (condition === 'Rain' || condition === 'Drizzle' ||
-                              condition === 'Snow' || condition === 'Thunderstorm');
+                              condition === 'Snow' || condition === 'Thunderstorm' ||
+                              (weatherState.precipitation || 0) > 0);
             if (!isPrecip && (now.getHours() >= 20 || now.getHours() < 5)) {
                 initializeCatalogStars();
             }
@@ -3830,6 +3835,50 @@
         // Tap target so phones (no keyboard) can open Pomodoro/Alarm.
         const toolsBtn = document.getElementById('btn-tools');
         if (toolsBtn) toolsBtn.addEventListener('click', toggleToolsPanel);
+
+        // --- Live weather-parameters panel (drivers of the visual effects) ---
+        let infoPanelVisible = false;
+        function compass16(deg) {
+            const names = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+                           'S','SSW','SW','WSW','W','WNW','NW','NNW'];
+            return names[Math.round(deg / 22.5) % 16];
+        }
+        function fmtNum(v, digits) {
+            if (v === null || v === undefined || isNaN(v)) return null;
+            return digits ? Number(v).toFixed(digits) : String(Math.round(v));
+        }
+        function setInfo(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = (text === null || text === undefined) ? '—' : text;
+        }
+        function updateInfoPanel() {
+            const w = weatherState;
+            setInfo('info-condition', w.condition || '—');
+            const p = fmtNum(w.precipitation, 1);
+            setInfo('info-precip', p !== null ? p + ' mm/h' : '—');
+            const ws = fmtNum(w.windSpeed, 0);
+            setInfo('info-wind', ws !== null ? ws + ' km/h' : '—');
+            if (typeof w.windDirection === 'number') {
+                setInfo('info-winddir', Math.round(w.windDirection) + '° (' + compass16(w.windDirection) + ')');
+            } else {
+                setInfo('info-winddir', '—');
+            }
+            const cc = fmtNum(w.cloudCover, 0);
+            setInfo('info-cloud', cc !== null ? cc + ' %' : '—');
+            const t = fmtNum(w.temp, 0);
+            setInfo('info-temp', t !== null ? t + ' °C' : '—');
+            const rainN = (currentParticleType === 'rain') ? particles.length : 0;
+            setInfo('info-rain-count', rainN + (rainN === 1 ? ' drop' : ' drops'));
+        }
+        function toggleInfoPanel() {
+            infoPanelVisible = !infoPanelVisible;
+            document.getElementById('info-panel').classList.toggle('visible', infoPanelVisible);
+            const ib = document.getElementById('btn-info');
+            if (ib) ib.classList.toggle('active', infoPanelVisible);
+            if (infoPanelVisible) updateInfoPanel();
+        }
+        const infoBtn = document.getElementById('btn-info');
+        if (infoBtn) infoBtn.addEventListener('click', toggleInfoPanel);
 
         function toggleUI() {
             const controls = document.getElementById('controls-wrapper');
