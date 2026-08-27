@@ -1,3 +1,11 @@
+        // Logical viewport dimensions (CSS pixels) — the single source of truth for
+        // all coordinate math and canvas sizing. Declared first because the clock /
+        // celestial code runs during startup, before the canvas section below.
+        // Uses the LAYOUT viewport, which (unlike window.innerWidth/innerHeight on
+        // Android) doesn't drift when the browser toolbar hides or the page zooms.
+        let canvasW = document.documentElement.clientWidth || window.innerWidth;
+        let canvasH = document.documentElement.clientHeight || window.innerHeight;
+
         // --- 1. Weather System ---
         const weatherState = {
             condition: null,        // 'Clear', 'Clouds', 'Rain', 'Snow', 'Thunderstorm', 'Mist'
@@ -202,7 +210,12 @@
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,winddirection_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
 
             try {
-                const response = await fetch(url);
+                // Abort after 15s so a hung request can never stall future
+                // refreshes on a flaky mobile connection.
+                const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                const killer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
+                const response = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+                if (killer) clearTimeout(killer);
                 if (!response.ok) {
                     throw new Error(`Weather API returned ${response.status}`);
                 }
@@ -375,10 +388,27 @@
                     lastWeatherUpdate.date = now.toDateString();
                     lastWeatherUpdate.hour = now.getHours();
                     lastWeatherFetchMs = Date.now();
+                    _weatherRetries = 0;
+                } else {
+                    scheduleWeatherRetry(); // null result (bad response)
                 }
             } catch (error) {
-                // Failed to update weather
+                scheduleWeatherRetry();     // network error / timeout
             }
+        }
+
+        // Exponential backoff retry (1, 2, 4, 8 min — capped), so a transient
+        // network blip doesn't leave the display stale until the next interval.
+        let _weatherRetries = 0;
+        let _weatherRetryTimer = null;
+        function scheduleWeatherRetry() {
+            if (_weatherRetries >= 4) return; // give up; the 15-min cycle continues
+            const delay = Math.min(8, Math.pow(2, _weatherRetries)) * 60000;
+            _weatherRetries++;
+            clearTimeout(_weatherRetryTimer);
+            _weatherRetryTimer = setTimeout(() => {
+                if (document.visibilityState === 'visible' && navigator.onLine) updateWeather();
+            }, delay);
         }
 
         // Check if weather should be auto-refreshed.
@@ -389,6 +419,7 @@
             // Don't fetch while the app is backgrounded / phone is locked — saves
             // API calls; the visibilitychange handler refreshes on return.
             if (document.visibilityState !== 'visible') return;
+            if (!navigator.onLine) return; // Offline: the 'online' handler retries.
             if (Date.now() - lastWeatherFetchMs >= WEATHER_REFRESH_MS + WEATHER_REFRESH_JITTER_MS) {
                 updateWeather();
             }
@@ -396,6 +427,26 @@
 
         // Start weather update checker (runs every minute)
         setInterval(checkWeatherUpdate, 60000); // Check every 60 seconds
+
+        // Watchdog: mobile browsers throttle or drop background timers, so a
+        // long-running session can silently stop refreshing. Re-check on every
+        // clock tick (cheap) and force a fetch if we've clearly overshot the
+        // interval — this is what keeps the page updating when left open for days.
+        function weatherWatchdog() {
+            if (!weatherState.coords) return;
+            if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+            const overdueBy = Date.now() - lastWeatherFetchMs;
+            if (overdueBy >= WEATHER_REFRESH_MS * 2) {
+                updateWeather();
+            }
+        }
+
+        // Retry promptly once connectivity returns.
+        window.addEventListener('online', () => {
+            if (weatherState.coords && Date.now() - lastWeatherFetchMs >= 60000) {
+                updateWeather();
+            }
+        });
 
         // Refresh as soon as the app becomes visible again (e.g. unlocking the
         // phone or switching back to the tab) if the data is older than 5 min,
@@ -474,6 +525,9 @@
             if (isAnalogClock) {
                 updateAnalogClock(now);
             }
+
+            // Cheap safety net: catches throttled/dropped refresh timers.
+            weatherWatchdog();
 
             // Keep the live-parameters panel current while it's open.
             if (typeof updateInfoPanel === 'function') {
@@ -766,7 +820,7 @@
             const celestialBody = document.getElementById('celestial-body');
             if (celestialBody && celestialBody.style.opacity === '1') {
                 const celestialTop = parseFloat(celestialBody.style.top);
-                const screenHeight = window.innerHeight;
+                const screenHeight = canvasH;
                 const celestialRelativePos = celestialTop / screenHeight;
 
                 // If celestial body is in the middle gradient zone (60%-80% from top), boost saturation
@@ -869,9 +923,9 @@
             }
 
             // Common arc parameters - higher orbit to avoid clock text
-            const centerX = window.innerWidth / 2;
-            const radiusX = window.innerWidth * 0.4;
-            const radiusY = window.innerHeight * 0.5; // Large arc for high peak (30% from top at noon)
+            const centerX = canvasW / 2;
+            const radiusX = canvasW * 0.4;
+            const radiusY = canvasH * 0.5; // Large arc for high peak (30% from top at noon)
 
             if (solarProgress >= 0 && solarProgress <= 1.0) {
                 // Daytime: Show sun (日中は常に太陽を表示)
@@ -880,7 +934,7 @@
                 // Sun movement: sunrise (left) → noon (top ~30% from top) → sunset (right)
                 const angle = Math.PI * solarProgress; // 0 → π
                 const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
-                const y = window.innerHeight * 0.8 - Math.sin(angle) * radiusY - 40; // Peak at 30% from top
+                const y = canvasH * 0.8 - Math.sin(angle) * radiusY - 40; // Peak at 30% from top
 
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
@@ -1012,7 +1066,7 @@
                 // Moon movement: sunset (left) → midnight (top ~30% from top) → sunrise (right)
                 const angle = Math.PI * moonProgress;
                 const x = centerX + Math.cos(Math.PI - angle) * radiusX - 40;
-                const y = window.innerHeight * 0.8 - Math.sin(angle) * radiusY - 40; // Peak at 30% from top
+                const y = canvasH * 0.8 - Math.sin(angle) * radiusY - 40; // Peak at 30% from top
 
                 celestialBody.style.left = x + 'px';
                 celestialBody.style.top = y + 'px';
@@ -1207,26 +1261,36 @@
             return sprite;
         }
 
-        // Logical canvas dimensions (CSS pixels) — use these for all coordinate calculations
-        let canvasW = window.innerWidth;
-        let canvasH = window.innerHeight;
-
         // Canvas size settings (cap dpr at 2 to balance sharpness and performance)
         // Adaptive render-resolution cap for performance on low-spec devices.
         // Computed once: low-RAM / low-core / very small phones render at 1x,
         // everything else caps at 1.5x. Clouds (blurred) and small particles
         // look virtually identical at these caps while fill-rate drops sharply.
-        const RENDER_DPR_CAP = (function () {
+        const LOW_END_DEVICE = (function () {
             const mem = navigator.deviceMemory || 4;        // GB (undefined on iOS Safari → assume 4)
             const cores = navigator.hardwareConcurrency || 4;
-            const isLowEnd = mem <= 3 || cores <= 4;
-            return isLowEnd ? 1 : 1.5;
+            return mem <= 3 || cores <= 4;
         })();
+        const RENDER_DPR_CAP = LOW_END_DEVICE ? 1 : 1.5;
 
+        let _canvasSizedDpr = -1; // DPR the canvases were last built with
         function resizeCanvas() {
             const dpr = Math.min(window.devicePixelRatio || 1, RENDER_DPR_CAP);
-            canvasW = window.innerWidth;
-            canvasH = window.innerHeight;
+            // Use the LAYOUT viewport (clientWidth/Height), not window.innerWidth/
+            // innerHeight. On Android the latter tracks the *visual* viewport, so it
+            // drifts when the toolbar hides/shows or the page is zoomed. That drift
+            // left an un-cleared band where old frames accumulated into a grey smear.
+            const newW = document.documentElement.clientWidth || window.innerWidth;
+            const newH = document.documentElement.clientHeight || window.innerHeight;
+
+            // Skip if nothing actually changed. Reassigning canvas.width/height is
+            // expensive (it reallocates and blanks the backing store), and Android
+            // fires resize events constantly while the toolbar animates.
+            if (newW === canvasW && newH === canvasH && _canvasSizedDpr === dpr) return;
+
+            canvasW = newW;
+            canvasH = newH;
+            _canvasSizedDpr = dpr;
 
             canvas.width = canvasW * dpr;
             canvas.height = canvasH * dpr;
@@ -1245,6 +1309,9 @@
             precipCanvas.style.width = canvasW + 'px';
             precipCanvas.style.height = canvasH + 'px';
             precipCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            // Setting .width/.height already blanks each backing store, so any
+            // stale pixels from the previous size are gone here.
         }
         resizeCanvas();
 
@@ -1293,8 +1360,15 @@
             // Fire twice: once now, once after iOS settles the new viewport.
             _resizeTimer = setTimeout(() => { resizeCanvas(); onResizeComplete(); }, 300);
         }, { passive: true });
+        // The visual viewport fires rapidly on Android (toolbar show/hide, zoom).
+        // Debounce it and let resizeCanvas() itself ignore no-op changes, so we
+        // never rebuild canvases dozens of times per second.
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', resizeCanvas, { passive: true });
+            let _vvTimer = null;
+            window.visualViewport.addEventListener('resize', () => {
+                clearTimeout(_vvTimer);
+                _vvTimer = setTimeout(resizeCanvas, 150);
+            }, { passive: true });
         }
 
         // ===== HIPPARCOS COORDINATE TRANSFORMATION UTILITIES =====
@@ -1625,7 +1699,11 @@
                     if (this.y > canvasH || this.x < -300 || this.x > canvasW + 300) {
                         // Create splash effect when hitting ground (not when blown off-screen)
                         if (this.y > canvasH && Math.random() < 0.1) { // 10% chance to create splash (reduced from 30%)
-                            rainSplashes.push(new RainSplash(this.x, canvasH - 5));
+                            // Hard cap: in heavy rain this array could otherwise
+                            // grow without bound and slowly drag the framerate down.
+                            if (rainSplashes.length < (LOW_END_DEVICE ? 20 : 60)) {
+                                rainSplashes.push(new RainSplash(this.x, canvasH - 5));
+                            }
                         }
                         this.reset();
                     }
@@ -2258,12 +2336,12 @@
                 this.active = isDaytime && isValidWeather && isValidCloudCover;
 
                 if (solarProgress >= 0 && solarProgress <= 1) {
-                    const centerX = window.innerWidth / 2;
-                    const radiusX = window.innerWidth * 0.4;
-                    const radiusY = window.innerHeight * 0.5;
+                    const centerX = canvasW / 2;
+                    const radiusX = canvasW * 0.4;
+                    const radiusY = canvasH * 0.5;
                     const angle = Math.PI * solarProgress;
                     this.sunX = centerX + Math.cos(Math.PI - angle) * radiusX;
-                    this.sunY = window.innerHeight * 0.8 - Math.sin(angle) * radiusY;
+                    this.sunY = canvasH * 0.8 - Math.sin(angle) * radiusY;
                 }
 
                 if (solarProgress < 0.3) {
@@ -2414,7 +2492,10 @@
                     // ~0% = clear sky (no/almost no clouds), 100% = fully overcast.
                     // Capped at 28 clouds total to stay light.
                     const cover = Math.max(0, Math.min(100, cloudCover));
-                    const totalClouds = Math.round((cover / 100) * 28);
+                    // Each cloud is a large blended drawImage every frame, so cap
+                    // the count harder on low-end devices (still looks overcast).
+                    const maxForDevice = LOW_END_DEVICE ? 16 : 28;
+                    const totalClouds = Math.round((cover / 100) * maxForDevice);
 
                     if (totalClouds <= 0) {
                         // Genuinely clear sky → leave it empty for realism.
@@ -2989,10 +3070,16 @@
             }
         }
 
+        // Low-end devices get fewer particles. Every particle costs an update +
+        // a drawImage each frame, so this is the single biggest lever on old
+        // phones — and at these counts the sky still looks full.
+        const PARTICLE_BUDGET = LOW_END_DEVICE ? 0.45 : 1;
+
         function createParticles(type, count) {
+            const n = Math.max(1, Math.round(count * PARTICLE_BUDGET));
             particles = [];
             currentParticleType = type;
-            for (let i = 0; i < count; i++) {
+            for (let i = 0; i < n; i++) {
                 particles.push(new Particle(type));
             }
         }
@@ -3168,16 +3255,31 @@
         let frameCount = 0;
         const targetFrameTime = 1000 / 10; // 10fps = 100ms per frame
 
+        let _frameTimer = null;   // pending setTimeout id — guards against duplicate loops
         function scheduleNextFrame() {
-            setTimeout(() => { requestAnimationFrame(animateParticles); }, targetFrameTime);
+            clearTimeout(_frameTimer);
+            // While hidden (screen off / another app), stop drawing entirely and
+            // poll slowly instead. Saves battery and avoids a backlog of frames.
+            if (document.visibilityState !== 'visible') {
+                _frameTimer = setTimeout(() => { requestAnimationFrame(animateParticles); }, 1000);
+                return;
+            }
+            _frameTimer = setTimeout(() => { requestAnimationFrame(animateParticles); }, targetFrameTime);
         }
 
         function animateParticles(currentTime) {
             scheduleNextFrame();
 
-            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-            cloudCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-            precipCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            // Nothing to draw while the app isn't on screen.
+            if (document.visibilityState !== 'visible') return;
+
+            // Clear using the SAME dimensions the canvases were sized with.
+            // Using window.innerWidth/innerHeight here could leave an un-cleared
+            // band (old frames accumulating into a grey smear) whenever those
+            // values drifted from the canvas size.
+            ctx.clearRect(0, 0, canvasW, canvasH);
+            cloudCtx.clearRect(0, 0, canvasW, canvasH);
+            precipCtx.clearRect(0, 0, canvasW, canvasH);
 
             // Atmospheric glow at horizon (drawn first, behind particles)
             drawHorizonGlow();
@@ -3241,51 +3343,20 @@
 
             // Draw star labels if enabled
             drawStarLabels();
-
-            // Temporary diagnostic HUD (enable by opening the page with #debug)
-            if (_debugHUD && (frameCount % 5 === 0)) updateDebugHUD();
-        }
-
-        // --- Temporary rain/particle diagnostic -------------------------------
-        // Open the app with #debug in the URL to show live internal state.
-        const _debugHUD = location.hash.indexOf('debug') !== -1
-            ? (() => {
-                const d = document.createElement('div');
-                d.id = '_debug-hud';
-                d.style.cssText = 'position:fixed;top:env(safe-area-inset-top,8px);left:8px;z-index:9999;'
-                    + 'background:rgba(0,0,0,0.8);color:#0f0;font:11px/1.4 monospace;'
-                    + 'padding:8px 10px;border-radius:6px;white-space:pre;pointer-events:none;max-width:90vw;';
-                document.body.appendChild(d);
-                return d;
-            })()
-            : null;
-        function updateDebugHUD() {
-            let rainN = 0, starN = 0, snowN = 0, otherN = 0;
-            for (const p of particles) {
-                if (p.type === 'rain') rainN++;
-                else if (p.type === 'star') starN++;
-                else if (p.type === 'snow') snowN++;
-                else otherN++;
-            }
-            const ov = document.getElementById('sky-cover-overlay');
-            const sr = spriteCache.rain;
-            _debugHUD.textContent =
-                'cond=' + weatherState.condition +
-                '  precip=' + weatherState.precipitation +
-                '\ncloudCover=' + weatherState.cloudCover +
-                '  wind=' + weatherState.windSpeed + '/' + weatherState.windDirection +
-                '\ncurType=' + currentParticleType +
-                '  particles=' + particles.length +
-                '\n  rain=' + rainN + ' star=' + starN + ' snow=' + snowN + ' other=' + otherN +
-                '\nrainSprite=' + (sr ? sr.width + 'x' + sr.height : 'NULL') +
-                '\noverlayOpacity=' + (ov ? ov.style.opacity : '?') +
-                '  appLoaded=' + document.body.classList.contains('app-loaded') +
-                '\ncanvas=' + canvas.width + 'x' + canvas.height +
-                '  dprCap=' + RENDER_DPR_CAP;
         }
 
         // Start the animation loop
         requestAnimationFrame(animateParticles);
+
+        // Coming back to the foreground: the viewport may have changed while we
+        // were hidden (rotation, toolbar), so re-sync the canvases and resume
+        // drawing immediately instead of waiting for the slow hidden-mode poll.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            resizeCanvas();
+            clearTimeout(_frameTimer);
+            requestAnimationFrame(animateParticles);
+        });
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
