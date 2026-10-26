@@ -40,11 +40,25 @@ A beautiful, immersive ambient clock that visualizes real-time weather condition
 
 ## Performance Optimizations
 
-- **Frame Rate**: Optimized to 15fps for smooth performance
-- **Cloud System**: 3-layer system with maximum 30 clouds
+- **Adaptive quality**: Auto, High, and Eco modes in the tools panel. Auto adjusts after sustained rendering load, with a slower recovery to avoid quality flicker.
+- **Independent layers**: Rain/snow target 15–30fps; clouds update at 3–8fps; stars at 4–8fps. Movement uses elapsed time, so changing quality does not change its speed.
+- **Rain depth**: Three tiny shared streak sprites provide fine distant rain, faster midground streaks, and a few soft foreground drops. A silver/slate sky and broad light field provide illumination without per-frame blur. Drops recycle from outside the viewport and follow the real wind; dense overcast veils the sun/moon.
+- **Cloud System**: Three shared, bounded cloud textures (about 2.2 MiB of RGBA pixels in total), a lower-resolution cloud canvas, and profile-based cloud counts including storms.
 - **Efficient Rendering**: Canvas-based rendering with layer separation
 - **Smart Caching**: Halo calculations cached for 10 minutes
 - **Lazy Loading**: Resources loaded on demand
+- **Background behavior**: Rendering stops while hidden and resumes with fresh viewport dimensions. Reduced-motion preferences limit movement and disable lightning flashes and shooting stars.
+- **Weather refresh**: About 30 minutes, with jitter and retry/backoff. Concurrent refresh triggers share a single in-flight update.
+
+### Visual previews and verification
+
+Add `?preview=day`, `?preview=sunset`, `?preview=night`, `?preview=rain`, `?preview=snow`, or `?preview=storm` to the app URL. Previews use fixed local scene times and weather without location/API requests; the location label explicitly says Preview. Open the URL without this parameter for live conditions.
+
+An optional browser smoke check covers all six scenes, cloud cache bounds, quality controls/adaptation, dimmer persistence, clock switching, frame-independent rain motion, background/resume, reduced motion, and rotation. It requires Node.js, Playwright, and an installed Google Chrome; these are development tools only, not app dependencies.
+
+From the repository root, serve it with `python3 -m http.server 8765 --bind 127.0.0.1`, then run `node Ambient_clock/tests/browser-smoke.cjs` in another terminal with Playwright available to Node. `PLAYWRIGHT_MODULE` may point to an existing Playwright module, and `BROWSER_BASE_URL` may override the app URL. Screenshots are saved to a temporary directory printed by the check.
+
+The checks do not establish battery use or performance on an actual older phone. Verify sustained use, temperature, and visual quality on target iOS/Android devices before treating those as release guarantees.
 
 ## Technologies Used
 

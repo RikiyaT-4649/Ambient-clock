@@ -2,6 +2,14 @@
 
 This guide helps you further optimize Ambient Clock for production deployment.
 
+## Current rendering architecture
+
+The app now shares at most three cloud appearance textures, capped at 384px per source tile (two tiles per texture). Their combined RGBA backing stores are about 2.2 MiB; cloud instances only hold position, scale, and a shared reference. This figure excludes decoded source images, screen canvases, and browser/GPU overhead.
+
+Eco/Balanced/High profiles independently budget cloud resolution/count, precipitation count/rate, star updates, and splash counts. Auto reduces quality after sustained load and only recovers after a longer stable period. It is an estimate from render callback cost and lateness, not a GPU or battery measurement. Hidden tabs cancel drawing, and reduced-motion preferences disable lightning flashes and shooting stars.
+
+Use the preview URLs and optional browser smoke check described in README.md to compare scenes. The image/audio file-size examples below describe the original release and are historical; check actual files before choosing a compression target. Smaller downloads alone do not reduce the memory occupied by decoded images or canvases.
+
 ## 🖼️ Image Optimization (Recommended)
 
 ### Current Image Sizes

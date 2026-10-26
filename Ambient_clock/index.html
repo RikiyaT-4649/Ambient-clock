@@ -95,6 +95,14 @@
     <!-- Tools panel -->
     <div id="tools-panel">
         <div class="tool-section">
+            <label class="tool-title" for="quality-mode">Visual quality</label>
+            <select class="quality-select" id="quality-mode">
+                <option value="auto">Auto</option>
+                <option value="high">High</option>
+                <option value="eco">Eco · less power</option>
+            </select>
+        </div>
+        <div class="tool-section">
             <div class="tool-title">Pomodoro Timer</div>
             <div class="pomodoro-status" id="pomodoro-status">Ready</div>
             <div class="pomodoro-display" id="pomodoro-time">25:00</div>
@@ -123,7 +131,7 @@
         <div class="info-row"><span>Temperature</span><b id="info-temp">—</b></div>
         <div class="info-divider"></div>
         <div class="info-row"><span>Rain particles</span><b id="info-rain-count">—</b></div>
-        <div class="info-note">Updated every 15 min from Open-Meteo.</div>
+        <div class="info-note">Updated about every 30 min from Open-Meteo.</div>
     </div>
 
     <!-- Shortcut hints -->
@@ -132,7 +140,7 @@
     </div>
 
     <!-- AUDIO ELEMENTS -->
-    <audio id="audio-rain" loop src="rain.mp3"></audio>
+    <audio id="audio-rain" loop preload="none" src="rain.mp3"></audio>
 
     <script src="app.js"></script>
 </body>

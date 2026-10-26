@@ -1,3 +1,20 @@
+        // Repeatable visual previews never change the real clock used by timers.
+        const PREVIEW_SCENES = {
+            day: { hour: 12, condition: 'Clear', cloudCover: 22, precipitation: 0 },
+            sunset: { hour: 17.6, condition: 'Clouds', cloudCover: 38, precipitation: 0 },
+            night: { hour: 23, condition: 'Clear', cloudCover: 8, precipitation: 0 },
+            rain: { hour: 16, condition: 'Rain', cloudCover: 92, precipitation: 5 },
+            snow: { hour: 8, condition: 'Snow', cloudCover: 85, precipitation: 1 },
+            storm: { hour: 18.5, condition: 'Thunderstorm', cloudCover: 100, precipitation: 15 }
+        };
+        const previewName = new URLSearchParams(location.search).get('preview');
+        const previewScene = Object.prototype.hasOwnProperty.call(PREVIEW_SCENES, previewName) ? PREVIEW_SCENES[previewName] : null;
+        function sceneDate() {
+            const date = new Date();
+            if (previewScene) date.setHours(Math.floor(previewScene.hour), Math.round(previewScene.hour % 1 * 60), 0, 0);
+            return date;
+        }
+
         // Logical viewport dimensions (CSS pixels) — the single source of truth for
         // all coordinate math and canvas sizing. Declared first because the clock /
         // celestial code runs during startup, before the canvas section below.
@@ -76,9 +93,11 @@
             }
 
             const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en`;
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timeout = controller ? setTimeout(() => controller.abort(), 10000) : null;
 
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, controller ? { signal: controller.signal } : undefined);
                 if (!response.ok) {
                     throw new Error(`Geocoding API returned ${response.status}`);
                 }
@@ -100,6 +119,8 @@
             } catch (error) {
                 // Failed to fetch city name
                 return 'Unknown Location';
+            } finally {
+                if (timeout) clearTimeout(timeout);
             }
         }
 
@@ -290,6 +311,8 @@
         // Track last weather update to prevent duplicate updates
         let lastWeatherUpdate = { date: null, hour: null };
         let lastWeatherFetchMs = 0;
+        let weatherLocationReady = false;
+        let nextWeatherAttemptMs = 0;
         // How often to auto-refresh weather. Kept at 30 min to stay well within
         // Open-Meteo's free per-IP limits (10k/day) even when several devices
         // share one network, while still reflecting real conditions all day.
@@ -299,9 +322,32 @@
         const WEATHER_REFRESH_JITTER_MS = Math.floor(Math.random() * 90 * 1000);
 
         async function initWeather() {
+            weatherFetchPending = true;
             try {
+                if (previewScene) {
+                    const sunrise = sceneDate(); sunrise.setHours(6, 0, 0, 0);
+                    const sunset = sceneDate(); sunset.setHours(18, 0, 0, 0);
+                    Object.assign(weatherState, previewScene, {
+                        city: 'Preview · ' + previewName, temp: previewName === 'snow' ? -2 : 19,
+                        windSpeed: 12, moonPhase: 0.43,
+                        sunrise: sunrise.toISOString(), sunset: sunset.toISOString(),
+                        sunriseMs: +sunrise, sunsetMs: +sunset
+                    });
+                    applyWindDirection(260);
+                    updateRainSprite();
+                    document.getElementById('weather-location').textContent = weatherState.city.toUpperCase();
+                    document.getElementById('weather-temp').textContent = weatherState.temp + '°C';
+                    document.getElementById('weather-desc').textContent = weatherState.condition;
+                    document.getElementById('sun-times').textContent = '☀️ 06:00 | 🌙 18:00';
+                    document.getElementById('weather-display').style.opacity = '1';
+                    updateTimeOfDay(sceneDate().getHours(), sceneDate().getMinutes());
+                    updateCelestialBody(sceneDate().getHours(), sceneDate().getMinutes());
+                    updateWeatherEffects();
+                    return;
+                }
                 const coords = await fetchUserLocation();
                 weatherState.coords = coords;
+                weatherLocationReady = true;
 
                 // Get city name and weather data in parallel
                 const [cityName, weather] = await Promise.all([
@@ -345,10 +391,14 @@
                     // Record initial update time
                     lastWeatherUpdate = { date: now.toDateString(), hour: now.getHours() };
                     lastWeatherFetchMs = Date.now();
+                } else {
+                    scheduleWeatherRetry();
                 }
             } catch (error) {
                 // Weather initialization failed
+                scheduleWeatherRetry();
             } finally {
+                weatherFetchPending = false;
                 // Mark app as loaded (show celestial body and effects)
                 document.body.classList.add('app-loaded');
             }
@@ -356,6 +406,8 @@
 
         // Update weather data (for scheduled updates)
         async function updateWeather() {
+            if (previewScene || !weatherLocationReady || weatherFetchPending || Date.now() < nextWeatherAttemptMs) return;
+            weatherFetchPending = true;
             try {
                 const coords = weatherState.coords;
                 const weather = await fetchWeatherData(coords.lat, coords.lon);
@@ -381,6 +433,9 @@
                     document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
 
                     // Update weather-dependent visuals
+                    const visualTime = sceneDate();
+                    updateTimeOfDay(visualTime.getHours(), visualTime.getMinutes());
+                    updateCelestialBody(visualTime.getHours(), visualTime.getMinutes());
                     updateWeatherEffects();
 
                     // Record update time
@@ -389,22 +444,31 @@
                     lastWeatherUpdate.hour = now.getHours();
                     lastWeatherFetchMs = Date.now();
                     _weatherRetries = 0;
+                    nextWeatherAttemptMs = 0;
+                    clearTimeout(_weatherRetryTimer);
                 } else {
                     scheduleWeatherRetry(); // null result (bad response)
                 }
             } catch (error) {
                 scheduleWeatherRetry();     // network error / timeout
+            } finally {
+                weatherFetchPending = false;
             }
         }
+        let weatherFetchPending = false;
 
         // Exponential backoff retry (1, 2, 4, 8 min — capped), so a transient
         // network blip doesn't leave the display stale until the next interval.
         let _weatherRetries = 0;
         let _weatherRetryTimer = null;
         function scheduleWeatherRetry() {
-            if (_weatherRetries >= 4) return; // give up; the 15-min cycle continues
+            if (_weatherRetries >= 4) {
+                nextWeatherAttemptMs = Date.now() + WEATHER_REFRESH_MS;
+                return;
+            }
             const delay = Math.min(8, Math.pow(2, _weatherRetries)) * 60000;
             _weatherRetries++;
+            nextWeatherAttemptMs = Date.now() + delay;
             clearTimeout(_weatherRetryTimer);
             _weatherRetryTimer = setTimeout(() => {
                 if (document.visibilityState === 'visible' && navigator.onLine) updateWeather();
@@ -415,6 +479,7 @@
         // Refreshes whenever the configured interval has elapsed since the last
         // successful fetch, so the screen reflects current conditions all day.
         function checkWeatherUpdate() {
+            if (previewScene) return;
             if (!weatherState.coords) return; // No location yet (initWeather not done)
             // Don't fetch while the app is backgrounded / phone is locked — saves
             // API calls; the visibilitychange handler refreshes on return.
@@ -433,6 +498,7 @@
         // clock tick (cheap) and force a fetch if we've clearly overshot the
         // interval — this is what keeps the page updating when left open for days.
         function weatherWatchdog() {
+            if (previewScene) return;
             if (!weatherState.coords) return;
             if (document.visibilityState !== 'visible' || !navigator.onLine) return;
             const overdueBy = Date.now() - lastWeatherFetchMs;
@@ -513,7 +579,7 @@
         }
 
         function updateClock() {
-            const now = new Date();
+            const now = sceneDate();
             const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
             const dateOptions = { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' };
             const dateStr = now.toLocaleDateString('en-US', dateOptions);
@@ -568,6 +634,19 @@
 
         // Color interpolation function (supports hex color codes)
         function interpolateColor(color1, color2, factor) {
+            // Keep the existing solar keyframes, with a softer atmospheric palette.
+            const palette = {
+                '#1e3a8a': '#172b50', '#e91e63': '#846e95', '#ff8c00': '#e8b69c',
+                '#1e40af': '#29466b', '#ff006e': '#b18b9d', '#ffa500': '#f5ce9f',
+                '#2563eb': '#285f91', '#38bdf8': '#78b3d2', '#e0f2fe': '#d6e5e7',
+                '#1d4ed8': '#225783', '#0ea5e9': '#70acd0', '#f0f9ff': '#dce9e9',
+                '#64748b': '#405c7a', '#fbbf24': '#bd9b94', '#fed7aa': '#f3d2a3',
+                '#475569': '#354566', '#f59e0b': '#b17f89', '#fecaca': '#efb985',
+                '#312e81': '#202b4a', '#b91c1c': '#815b7b', '#7c3aed': '#e69b83',
+                '#4c1d95': '#172340', '#6b21a8': '#bb7d83', '#581c87': '#3d3659', '#3b0764': '#806279'
+            };
+            color1 = palette[color1] || color1;
+            color2 = palette[color2] || color2;
             // Convert hex color code to RGB
             const hexToRgb = (hex) => {
                 const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -699,10 +778,12 @@
 
                 case 'Rain':
                 case 'Drizzle':
-                    // Blue tint and reduce brightness
-                    adjusted1 = applyTint(rgb1, {r: -20, g: -10, b: 20}, 0.85);
-                    adjusted2 = applyTint(rgb2, {r: -20, g: -10, b: 20}, 0.85);
-                    adjusted3 = applyTint(rgb3, {r: -20, g: -10, b: 20}, 0.85);
+                    // A silver/slate sky gives fine rain a natural light source;
+                    // preserve a little of the actual time-of-day palette.
+                    const daylight = isNighttime() ? 0.28 : 0.82;
+                    adjusted1 = rgb1.map((v, i) => v * 0.18 + [25, 38, 53][i] * daylight);
+                    adjusted2 = rgb2.map((v, i) => v * 0.18 + [56, 73, 88][i] * daylight);
+                    adjusted3 = rgb3.map((v, i) => v * 0.18 + [83, 103, 116][i] * daylight);
                     break;
 
                 case 'Snow':
@@ -861,11 +942,13 @@
             // 演出1: グラデーションの比率を崩す - Gradient ratio adjustment (70% instead of 50%)
             const gradient = `linear-gradient(to bottom, ${color1} 0%, ${color2} 70%, ${color3} 100%)`;
             bgContainer.style.background = gradient;
+            const sky = document.getElementById('sky-cover-overlay');
+            if (sky.classList.contains('rain-atmosphere')) sky.classList.toggle('rain-night', isNighttime());
         }
 
         // Calculate solar progress (0.0 = sunrise, 1.0 = sunset, -1 = night)
         function getSolarProgress() {
-            const now = Date.now();
+            const now = +sceneDate();
             const { sunriseMs, sunsetMs } = weatherState;
 
             // If no cached timestamps, estimate based on time (6:00-18:00)
@@ -897,11 +980,11 @@
 
             // If no cached timestamps, use fixed time (20:00-05:00)
             if (sunriseMs === null || sunsetMs === null) {
-                const hour = new Date().getHours();
+                const hour = sceneDate().getHours();
                 return hour >= 20 || hour < 5;
             }
 
-            const now = Date.now();
+            const now = +sceneDate();
             // Night is after sunset or before sunrise
             return now < sunriseMs || now > sunsetMs;
         }
@@ -943,7 +1026,7 @@
 
                 // 時間帯による太陽の性格変化
                 let sunSize, sunGradient, sunShadow, sunFilter, sunClipPath;
-                const baseSize = 80; // デフォルトサイズ
+                const baseSize = Math.min(72, Math.max(44, canvasW * 0.12));
 
                 if (solarProgress <= 0.2) {
                     // ① 黎明（日の出）：希望の火種 - 大きく、ごく薄いピンク、ぼかし強め
@@ -995,7 +1078,7 @@
                     } else {
                         // 半分沈むまでは徐々に切り取る（0%～100%）
                         celestialBody.style.opacity = '1';
-                        sunClipPath = `inset(0 0 ${fadeProgress * 100}% 0 round 50%)`;
+                        sunClipPath = `inset(0 0 ${fadeProgress * 100}% 0)`;
                     }
 
                 } else {
@@ -1015,7 +1098,8 @@
                 celestialBody.style.width = sunSize + 'px';
                 celestialBody.style.height = sunSize + 'px';
                 celestialBody.style.background = sunGradient;
-                celestialBody.style.boxShadow = sunShadow;
+                // A bounded radial glow replaces several 250–350px blur shadows.
+                celestialBody.style.boxShadow = 'none';
                 celestialBody.style.filter = sunFilter;
                 celestialBody.style.clipPath = sunClipPath;
                 celestialBody.style.transform = 'none'; // Reset moon rotation
@@ -1033,9 +1117,13 @@
             } else {
                 // Night time: Show moon
                 celestialBody.className = 'moon';
+                celestialBody.style.clipPath = 'none';
+                celestialBody.style.filter = 'none';
+                celestialBody.style.width = '80px';
+                celestialBody.style.height = '80px';
 
                 // Calculate moon progress based on time between sunset and next sunrise
-                const now = Date.now();
+                const now = +sceneDate();
                 const sunsetTime = weatherState.sunset ? new Date(weatherState.sunset).getTime() : null;
                 const sunriseTime = weatherState.sunrise ? new Date(weatherState.sunrise).getTime() : null;
 
@@ -1088,6 +1176,12 @@
                 // Apply rotation to celestialBody element directly (CSP-compliant)
                 celestialBody.style.transform = `rotate(${moonRotation}deg)`;
             }
+            // Let cloud cover veil the disc as well as the rest of the sky.
+            const cover = Math.max(0, Math.min(1, weatherState.cloudCover / 100));
+            const raining = weatherState.condition !== 'Snow' &&
+                (weatherState.precipitation > 0 || weatherState.condition === 'Rain' || weatherState.condition === 'Thunderstorm');
+            const veil = raining ? Math.max(0.008, (1 - cover) * (1 - cover) * 0.35) : Math.max(0.06, 1 - cover * cover * 0.94);
+            celestialBody.style.opacity = String(Number(celestialBody.style.opacity) * veil);
         }
 
 
@@ -1271,11 +1365,52 @@
             const cores = navigator.hardwareConcurrency || 4;
             return mem <= 3 || cores <= 4;
         })();
-        const RENDER_DPR_CAP = LOW_END_DEVICE ? 1 : 1.5;
+        const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+        const QUALITY_LEVELS = [
+            { name: 'Eco', dpr: 1, cloudScale: 0.5, clouds: 9, particles: 0.4, fps: 15, cloudFps: 3, starFps: 4, splashes: 5 },
+            { name: 'Balanced', dpr: 1.25, cloudScale: 0.65, clouds: 14, particles: 0.65, fps: 24, cloudFps: 5, starFps: 6, splashes: 12 },
+            { name: 'High', dpr: 1.5, cloudScale: 0.8, clouds: 20, particles: 1, fps: 30, cloudFps: 8, starFps: 8, splashes: 24 }
+        ];
+        const renderQuality = {
+            mode: 'auto', level: LOW_END_DEVICE ? 0 : 1,
+            slowMs: 0, fastMs: 0, lastChange: 0,
+            get profile() { return QUALITY_LEVELS[motionPreference.matches ? 0 : this.level]; },
+            setMode(mode) {
+                this.mode = ['auto', 'high', 'eco'].includes(mode) ? mode : 'auto';
+                this.setLevel(this.mode === 'high' ? 2 : this.mode === 'eco' ? 0 : (LOW_END_DEVICE ? 0 : 1));
+            },
+            setLevel(level) {
+                this.level = level;
+                this.slowMs = this.fastMs = 0;
+                this.lastChange = performance.now();
+                document.documentElement.dataset.quality = this.profile.name.toLowerCase();
+                resizeCanvas();
+                if (cloudManager.initialized) cloudManager.init(weatherState.condition || 'Clear');
+                const type = currentParticleType;
+                particles = [];
+                currentParticleType = 'none';
+                if (type === 'star') lastStarUpdateTime = 0;
+                updateParticleType(sceneDate().getHours());
+                rainSplashes = [];
+                invalidateScene();
+            },
+            observe(cost, elapsed, late) {
+                if (this.mode !== 'auto' || motionPreference.matches) return;
+                const budget = 1000 / this.profile.fps;
+                const slow = cost > budget * 0.5 || late > budget * 0.8;
+                this.slowMs = slow ? this.slowMs + elapsed : Math.max(0, this.slowMs - elapsed);
+                this.fastMs = !slow && cost < budget * 0.2 ? this.fastMs + elapsed : 0;
+                const sinceChange = performance.now() - this.lastChange;
+                if (this.slowMs > 4000 && sinceChange > 8000 && this.level > 0) this.setLevel(this.level - 1);
+                else if (this.fastMs > 45000 && sinceChange > 45000 && this.level < 2) this.setLevel(this.level + 1);
+            }
+        };
+        document.documentElement.dataset.quality = renderQuality.profile.name.toLowerCase();
 
         let _canvasSizedDpr = -1; // DPR the canvases were last built with
+        let _canvasCloudScale = -1;
         function resizeCanvas() {
-            const dpr = Math.min(window.devicePixelRatio || 1, RENDER_DPR_CAP);
+            const dpr = Math.min(window.devicePixelRatio || 1, renderQuality.profile.dpr);
             // Use the LAYOUT viewport (clientWidth/Height), not window.innerWidth/
             // innerHeight. On Android the latter tracks the *visual* viewport, so it
             // drifts when the toolbar hides/shows or the page is zoomed. That drift
@@ -1286,11 +1421,13 @@
             // Skip if nothing actually changed. Reassigning canvas.width/height is
             // expensive (it reallocates and blanks the backing store), and Android
             // fires resize events constantly while the toolbar animates.
-            if (newW === canvasW && newH === canvasH && _canvasSizedDpr === dpr) return;
+            if (newW === canvasW && newH === canvasH && _canvasSizedDpr === dpr &&
+                _canvasCloudScale === renderQuality.profile.cloudScale) return;
 
             canvasW = newW;
             canvasH = newH;
             _canvasSizedDpr = dpr;
+            _canvasCloudScale = renderQuality.profile.cloudScale;
 
             canvas.width = canvasW * dpr;
             canvas.height = canvasH * dpr;
@@ -1298,11 +1435,12 @@
             canvas.style.height = canvasH + 'px';
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            cloudCanvas.width = canvasW * dpr;
-            cloudCanvas.height = canvasH * dpr;
+            const cloudDpr = renderQuality.profile.cloudScale;
+            cloudCanvas.width = Math.round(canvasW * cloudDpr);
+            cloudCanvas.height = Math.round(canvasH * cloudDpr);
             cloudCanvas.style.width = canvasW + 'px';
             cloudCanvas.style.height = canvasH + 'px';
-            cloudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            cloudCtx.setTransform(cloudCanvas.width / canvasW, 0, 0, cloudCanvas.height / canvasH, 0, 0);
 
             precipCanvas.width = canvasW * dpr;
             precipCanvas.height = canvasH * dpr;
@@ -1310,15 +1448,25 @@
             precipCanvas.style.height = canvasH + 'px';
             precipCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+            // Resizing clears all backing stores, including the slow layers.
+            sceneDirty = true;
+
             // Setting .width/.height already blanks each backing store, so any
             // stale pixels from the previous size are gone here.
         }
+        let sceneDirty = true;
+        function invalidateScene() { sceneDirty = true; }
         resizeCanvas();
 
         // Debounced post-resize: rebuild particles, clouds, celestial body (200ms)
         let _resizeTimer = null;
         function onResizeComplete() {
             resizeCanvas();
+            if (currentParticleType === 'rain' || currentParticleType === 'snow') {
+                // Refill the whole viewport after rotation, rather than keeping
+                // the old portrait-width strip until every drop has recycled.
+                createParticles(currentParticleType, particles.length / renderQuality.profile.particles);
+            }
 
             // B: Re-generate star positions for new dimensions
             if (typeof updateStarField === 'function') updateStarField();
@@ -1579,22 +1727,37 @@
                     this.trail = []; // Afterimage trail points
                 }
 
-                // Rain initialization - wider distribution and faster fall with depth perspective
+                // Three stable depth bands: fine distant rain, a readable middle
+                // layer, and a few soft foreground streaks. Keep the band on
+                // recycling so the depth order never changes mid-flight.
                 if (this.type === 'rain') {
-                    // Depth: 0.0 (far/background) to 1.0 (near/foreground)
-                    this.depth = Math.random();
-
-                    // Wider spawn area (beyond screen edges for wind effect)
-                    this.x = Math.random() * (canvasW + 400) - 200;
-                    this.y = Math.random() * canvasH - canvasH * 0.3;
-
-                    // Depth-scaled properties: near rain is faster, larger, more opaque
-                    const depthScale = 0.4 + this.depth * 0.6; // 0.4 (far) to 1.0 (near)
-                    this.speedY = (Math.random() * 8 + 12) * depthScale;
-                    this.speedX = (Math.random() * 2 - 1) * depthScale;
-                    this.size = (Math.random() * 1.8 + 0.8) * depthScale;
-                    this.opacity = (Math.random() * 0.3 + 0.3) + this.depth * 0.3; // 0.3-0.6 (far) to 0.6-0.9 (near)
-                    this.length = (Math.random() * 15 + 10) * depthScale;
+                    const firstDrop = this.rainLayer === undefined;
+                    if (firstDrop) {
+                        const depth = Math.random();
+                        this.rainLayer = depth < 0.60 ? 0 : depth < 0.93 ? 1 : 2;
+                    }
+                    const layer = RAIN_LAYERS[this.rainLayer];
+                    this.depth = this.rainLayer / 2;
+                    this.speedY = layer.speed * (0.92 + Math.random() * 0.16);
+                    this.speedX = 0;
+                    this.rainScale = 0.80 + Math.random() * 0.40;
+                    this.length = layer.length * this.rainScale;
+                    this.opacity = layer.opacity * (0.65 + Math.random() * 0.65);
+                    if (firstDrop) {
+                        this.x = Math.random() * canvasW;
+                        this.y = Math.random() * (canvasH + this.length) - this.length;
+                    } else {
+                        // Sample the incoming top/side boundary by its particle
+                        // flux. Recycling into the middle of the sky would pop.
+                        const sideFlux = Math.abs(rainSlant) * canvasH;
+                        if (Math.random() * (canvasW + sideFlux) < sideFlux) {
+                            this.x = rainSlant > 0 ? -this.length : canvasW + this.length;
+                            this.y = Math.random() * canvasH;
+                        } else {
+                            this.x = Math.random() * canvasW;
+                            this.y = -this.length;
+                        }
+                    }
                 }
 
                 // Snow initialization - enhanced drift with dual sine wave
@@ -1621,10 +1784,10 @@
                 }
             }
 
-            update() {
+            update(step = 1) {
                 if (this.type === 'star') {
                     // Altitude-dependent twinkling (simplified single wave)
-                    this.twinklePhase += this.twinkleSpeed;
+                    this.twinklePhase += this.twinkleSpeed * step;
 
                     // Reduce twinkle amplitude for bright stars to prevent excessive brightness
                     const brightnessAdjustment = this.baseBrightness > 0.8 ? 0.6 : 1.0;
@@ -1635,7 +1798,7 @@
 
                     // Color scintillation for low-altitude stars (subtle R/B shift)
                     if (this.altitude > 0.6 && this.scintillationPhase !== undefined) {
-                        this.scintillationPhase += 0.05;
+                        this.scintillationPhase += 0.05 * step;
                     }
 
                     // Base opacity with wave modulation
@@ -1653,9 +1816,9 @@
                     this.trail.push({ x: this.x, y: this.y, opacity: this.opacity, time: Date.now() });
 
                     // Shooting star movement
-                    this.x += this.speedX;
-                    this.y += this.speedY;
-                    this.life -= 0.008;
+                    this.x += this.speedX * step;
+                    this.y += this.speedY * step;
+                    this.life -= 0.008 * step;
                     this.opacity = this.life;
 
                     // Fade out old trail points (0.5s afterimage)
@@ -1671,37 +1834,39 @@
                     // windHoriz gives the real wind direction (sign + strength).
                     const windDrift = (weatherState.windSpeed || 0) * (weatherState.windHoriz || 0) * 0.05;
 
-                    this.driftOffset += this.driftSpeed;
-                    this.driftOffset2 += this.driftSpeed2;
-                    this.y += this.speedY;
+                    this.driftOffset += this.driftSpeed * step;
+                    this.driftOffset2 += this.driftSpeed2 * step;
+                    this.y += this.speedY * step;
 
                     let dx = this.speedX + sinLUT(this.driftOffset) * 0.5
                            + sinLUT(this.driftOffset2) * this.driftAmp2 + windDrift;
 
                     if (this.isSwirling) {
-                        this.swirlPhase += this.swirlSpeed;
+                        this.swirlPhase += this.swirlSpeed * step;
                         dx += cosLUT(this.swirlPhase) * this.swirlRadius;
-                        this.y += sinLUT(this.swirlPhase) * this.swirlRadius * 0.3;
+                        this.y += sinLUT(this.swirlPhase) * this.swirlRadius * 0.3 * step;
                     }
 
-                    this.x += dx;
+                    this.x += dx * step;
 
                     if (this.y > canvasH) this.reset();
                 } else {
                     // Rain falling with wind effect — slants in the real wind
                     // direction (windHoriz is signed: +right / -left).
-                    const windDrift = (weatherState.windSpeed || 0) * (weatherState.windHoriz || 0) * 0.3;
+                    const windDrift = this.speedY * rainSlant;
 
-                    this.y += this.speedY;
-                    this.x += this.speedX + windDrift;
+                    this.y += this.speedY * step;
+                    this.x += (this.speedX + windDrift) * step;
 
                     // Reset if out of bounds (bottom or sides due to wind)
-                    if (this.y > canvasH || this.x < -300 || this.x > canvasW + 300) {
+                    if (this.y > canvasH + this.length ||
+                        (windDrift < 0 && this.x < -this.length) ||
+                        (windDrift > 0 && this.x > canvasW + this.length)) {
                         // Create splash effect when hitting ground (not when blown off-screen)
-                        if (this.y > canvasH && Math.random() < 0.1) { // 10% chance to create splash (reduced from 30%)
+                        if (this.rainLayer === 2 && this.y > canvasH && Math.random() < 0.05) {
                             // Hard cap: in heavy rain this array could otherwise
                             // grow without bound and slowly drag the framerate down.
-                            if (rainSplashes.length < (LOW_END_DEVICE ? 20 : 60)) {
+                            if (!motionPreference.matches && rainSplashes.length < renderQuality.profile.splashes) {
                                 rainSplashes.push(new RainSplash(this.x, canvasH - 5));
                             }
                         }
@@ -1722,11 +1887,17 @@
                     return;
                 }
                 if (this.type === 'rain') {
-                    precipCtx.globalAlpha = this.opacity;
-                    const scale = this.size * 0.9 + 0.3;
-                    const sw = spriteCache.rain.width * scale;
-                    const sh = spriteCache.rain.height * scale;
-                    precipCtx.drawImage(spriteCache.rain, this.x - sw / 2, this.y - sh / 2, sw, sh);
+                    const sprite = spriteCache.rain[this.rainLayer];
+                    const scale = this.rainScale;
+                    const sw = sprite.width * scale;
+                    const sh = sprite.height * scale;
+                    if (this.x + sw < 0 || this.x - sw > canvasW || this.y + sh < 0) return;
+                    // A broad light field makes rain appear and disappear gently,
+                    // rather than flashing individual drops or blurring the frame.
+                    const light = Math.max(0, 1 - Math.abs(this.x / canvasW - 0.28) * 1.5);
+                    const edge = Math.max(0, Math.min(1, (this.y + sh) / 45, (canvasH + sh - this.y) / 80));
+                    precipCtx.globalAlpha = Math.min(0.8, this.opacity * (0.65 + light * 0.75) * edge);
+                    precipCtx.drawImage(sprite.canvas, this.x - sw / 2, this.y - sh / 2, sw, sh);
                     return;
                 }
 
@@ -1877,22 +2048,22 @@
                 this.maxBounces = 2;
             }
 
-            update() {
-                this.lifetime++;
+            update(step = 1) {
+                this.lifetime += step;
 
                 // Physics: Projectile motion with gravity
                 // x(t) = x₀ + vₓ * t
                 // y(t) = y₀ + vᵧ * t + 0.5 * g * t²
-                this.x += this.vx;
-                this.y += this.vy;
+                this.x += this.vx * step;
+                this.y += this.vy * step;
 
                 // Apply gravity to vertical velocity
                 // vᵧ(t) = v₀ᵧ + g * t
-                this.vy += this.gravity;
+                this.vy += this.gravity * step;
 
                 // Apply air resistance (damping)
-                this.vx *= this.damping;
-                this.vy *= this.damping;
+                this.vx *= Math.pow(this.damping, step);
+                this.vy *= Math.pow(this.damping, step);
 
                 // Ground collision detection and bounce
                 if (this.y >= canvasH - 5) {
@@ -1905,7 +2076,7 @@
                     } else {
                         // Stop bouncing, slide to halt
                         this.vy = 0;
-                        this.vx *= 0.9; // Friction
+                        this.vx *= Math.pow(0.9, step); // Friction
                     }
                 }
 
@@ -1956,8 +2127,8 @@
                 }
             }
 
-            update() {
-                this.lifetime++;
+            update(step = 1) {
+                this.lifetime += step;
 
                 // Expand ripple with easing (fast start, slow end)
                 const progress = this.lifetime / this.maxLifetime;
@@ -1966,19 +2137,19 @@
                 this.opacity = 0.9 * (1 - progress);
 
                 // Update splash droplets
-                this.droplets = this.droplets.filter(droplet => droplet.update() !== 'remove');
+                this.droplets = this.droplets.filter(droplet => droplet.update(step) !== 'remove');
 
                 return this.lifetime >= this.maxLifetime ? 'remove' : null;
             }
 
             draw() {
                 // Single ripple (removed inner ripple for performance)
-                ctx.globalAlpha = this.opacity;
-                ctx.strokeStyle = '#aaddff';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                ctx.stroke();
+                precipCtx.globalAlpha = this.opacity;
+                precipCtx.strokeStyle = '#aaddff';
+                precipCtx.lineWidth = 1;
+                precipCtx.beginPath();
+                precipCtx.ellipse(this.x, this.y, this.radius, this.radius * 0.28, 0, 0, Math.PI * 2);
+                precipCtx.stroke();
 
                 // Draw splash droplets
                 for (let i = 0; i < this.droplets.length; i++) {
@@ -2062,6 +2233,8 @@
             }
         };
 
+        // One bounded source-sized texture per appearance, shared by all clouds.
+        const cloudTextureCache = new Map();
         class CloudParticle {
             constructor(layer, weatherCondition, forceType = null) {
                 this.layer = layer; // 0=遠景, 1=中景, 2=近景（3層構造）
@@ -2112,8 +2285,7 @@
                 this.mirrored = Math.random() > 0.5;
 
                 // オフスクリーンキャンバスを作成（パフォーマンス最適化）
-                this.offscreenCanvas = document.createElement('canvas');
-                this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+                this.offscreenCanvas = null;
                 this.effectCacheDirty = true; // エフェクト付きキャッシュが未生成
 
                 // 見た目の設定
@@ -2189,16 +2361,21 @@
                 const cover = Math.max(0, Math.min(100, weatherState.cloudCover || 0));
                 const densityFactor = 0.6 + (cover / 100) * 0.6; // 0.6x .. 1.2x
                 this.baseOpacity *= densityFactor;
+                const solar = getSolarProgress();
+                if (solar >= 0 && condition !== 'Rain' && condition !== 'Thunderstorm') {
+                    this.brightness *= 1.4;
+                    this.baseOpacity *= 0.85;
+                }
             }
 
-            update() {
+            update(step = 1) {
                 // Gentle baseline drift + real wind (precomputed, per-layer).
                 // Clouds can now drift either direction depending on real wind.
                 const wind = (cloudManager.windPush || 0) * this.windFactor;
-                this.x += this.speed + wind;
+                this.x += (this.speed + wind) * step;
 
                 // Seamless wrap on whichever edge the cloud exits.
-                const margin = 400;
+                const margin = (this.image.naturalWidth || 994) * this.scale * 1.5;
                 if (this.x > canvasW + margin) {
                     this.x = -margin;
                     this.y = Math.random() * (canvasH * 0.7);
@@ -2221,12 +2398,16 @@
                 }
                 const imgWidth = this.image.width * this.scale * scaleAdjustment;
                 const imgHeight = this.image.height * this.scale * scaleAdjustment;
+                // Conservative rotated bounds: skip fully invisible clouds.
+                const radius = imgWidth + imgHeight / 2;
+                if (this.x + radius < 0 || this.x - radius > canvasW ||
+                    this.y + radius < 0 || this.y - radius > canvasH) return;
 
                 // エフェクト付きキャッシュを初回のみ生成
                 if (this.effectCacheDirty) {
                     let filterStr = `brightness(${this.brightness}) contrast(${this.contrast}) saturate(${this.saturation || 1})`;
                     if (this.blur) filterStr += ` blur(${this.blur}px)`;
-                    this._buildEffectCache(imgWidth, imgHeight, filterStr);
+                    this.offscreenCanvas = this._buildEffectCache(filterStr);
                     this.effectCacheDirty = false;
                 }
 
@@ -2241,14 +2422,18 @@
                 ctx.translate(this.x, this.y);
                 ctx.rotate(this.rotation);
                 if (this.mirrored) ctx.scale(-1, 1);
-                ctx.drawImage(this.offscreenCanvas, -imgWidth, -imgHeight / 2);
+                ctx.drawImage(this.offscreenCanvas, -imgWidth, -imgHeight / 2, imgWidth * 2, imgHeight);
                 ctx.restore();
             }
 
             // エフェクト付きオフスクリーンCanvasを一度だけ構築（以降キャッシュとして再利用）
-            _buildEffectCache(imgWidth, imgHeight, filterStr) {
-                const offscreen = this.offscreenCanvas;
-                const offCtx = this.offscreenCtx;
+            _buildEffectCache(filterStr) {
+                const key = this.imageType + ':' + filterStr;
+                if (cloudTextureCache.has(key)) return cloudTextureCache.get(key);
+                const imgWidth = Math.min(384, this.image.naturalWidth);
+                const imgHeight = Math.round(imgWidth * this.image.naturalHeight / this.image.naturalWidth);
+                const offscreen = document.createElement('canvas');
+                const offCtx = offscreen.getContext('2d');
 
                 offscreen.width = imgWidth * 2;
                 offscreen.height = imgHeight;
@@ -2301,6 +2486,9 @@
                 verticalMask.addColorStop(1, 'rgba(0, 0, 0, 0)');
                 offCtx.fillStyle = verticalMask;
                 offCtx.fillRect(0, 0, imgWidth * 2, imgHeight);
+                offCtx.globalCompositeOperation = 'source-over';
+                cloudTextureCache.set(key, offscreen);
+                return offscreen;
             }
         }
 
@@ -2471,6 +2659,8 @@
             init(weatherCondition) {
                 // Clear existing clouds
                 this.layers = [[], [], []];
+                cloudTextureCache.clear();
+                invalidateScene();
 
                 // Determine cloud count based on actual cloud cover data
                 const cloudCover = weatherState.cloudCover || 0; // 0-100%
@@ -2481,12 +2671,8 @@
                     cloudCount = [0, 0, 0]; // No high clouds for fog
                 } else if (weatherCondition === 'Thunderstorm') {
                     // Thunderstorm: dense, dark clouds (boost cloud count)
-                    const baseCount = Math.floor(cloudCover * 0.08); // 軽量化のため削減
-                    cloudCount = [
-                        Math.max(5, baseCount),
-                        Math.max(8, baseCount + 3),
-                        Math.max(4, baseCount - 1)
-                    ];
+                    const total = renderQuality.profile.clouds;
+                    cloudCount = [Math.round(total * 0.3), Math.round(total * 0.5), Math.round(total * 0.2)];
                 } else {
                     // Faithfully track the real cloud-cover percentage.
                     // ~0% = clear sky (no/almost no clouds), 100% = fully overcast.
@@ -2494,7 +2680,7 @@
                     const cover = Math.max(0, Math.min(100, cloudCover));
                     // Each cloud is a large blended drawImage every frame, so cap
                     // the count harder on low-end devices (still looks overcast).
-                    const maxForDevice = LOW_END_DEVICE ? 16 : 28;
+                    const maxForDevice = renderQuality.profile.clouds;
                     const totalClouds = Math.round((cover / 100) * maxForDevice);
 
                     if (totalClouds <= 0) {
@@ -2513,7 +2699,7 @@
                 }
 
                 // Create clouds for each layer
-                for (let layer = 0; layer < 5; layer++) {
+                for (let layer = 0; layer < this.layers.length; layer++) {
                     for (let i = 0; i < cloudCount[layer]; i++) {
                         this.layers[layer].push(new CloudParticle(layer, weatherCondition, this.forceCloudType));
                     }
@@ -2524,7 +2710,7 @@
                 const typeInfo = this.forceCloudType ? ` (forced type: ${this.forceCloudType})` : '';
             },
 
-            updateClouds() {
+            updateClouds(step = 1) {
                 if (!this.initialized) return;
 
                 // Precompute the horizontal wind push ONCE per update (shared by
@@ -2537,7 +2723,7 @@
                 // Update all clouds in all layers
                 for (let layer of this.layers) {
                     for (let cloud of layer) {
-                        cloud.update();
+                        cloud.update(step);
                     }
                 }
             },
@@ -2570,7 +2756,7 @@
 
                 if (tintIntensity > 0.01) {
                     const prevComp = ctx.globalCompositeOperation;
-                    ctx.globalCompositeOperation = 'overlay';
+                    ctx.globalCompositeOperation = 'source-atop';
                     ctx.fillStyle = `rgba(${tintR}, ${tintG}, ${tintB}, ${tintIntensity})`;
                     ctx.fillRect(0, 0, canvasW, canvasH);
                     ctx.globalCompositeOperation = prevComp;
@@ -2654,12 +2840,12 @@
                 this.generateFractalPath(offsetX, offsetY, x2, y2, depth + 1);
             }
 
-            update() {
-                this.lifetime++;
+            update(step = 1) {
+                this.lifetime += step;
 
                 // Fade flash intensity
                 if (this.lifetime > 2) {
-                    this.flashIntensity *= 0.7;
+                    this.flashIntensity *= Math.pow(0.7, step);
                 }
             }
 
@@ -2726,20 +2912,20 @@
                 this.activeBolts = [];
             },
 
-            update() {
+            update(step = 1) {
                 if (!this.active) return;
 
                 const now = Date.now();
 
                 // Check if time for new strike
-                if (now >= this.nextStrikeTime && this.activeBolts.length === 0) {
+                if (!motionPreference.matches && now >= this.nextStrikeTime && this.activeBolts.length === 0) {
                     this.createLightning();
                     this.nextStrikeTime = now + (Math.random() * 420000 + 180000); // 180-600s (3-10 min)
                 }
 
                 // Update existing bolts
                 for (let bolt of this.activeBolts) {
-                    bolt.update();
+                    bolt.update(step);
                 }
 
                 // Remove expired bolts
@@ -2976,7 +3162,7 @@
                 return null;
             }
 
-            const now = new Date();
+            const now = sceneDate();
             const { lat, lon } = weatherState.coords;
             const lst = calculateLST(now, lon);
 
@@ -3022,23 +3208,20 @@
 
             // 6. Sort by magnitude (brightest first) and limit to 200 stars
             visibleStars.sort((a, b) => a.mag - b.mag);
-            const maxStars = 200;
+            const maxStars = Math.round(200 * renderQuality.profile.particles);
             return visibleStars.slice(0, maxStars);
         }
 
         // Load and display catalog stars on night scenes
         function initializeCatalogStars() {
-            const isNight = (() => {
-                const hour = new Date().getHours();
-                return hour >= 20 || hour < 5;
-            })();
+            const isNight = isNighttime();
 
             if (!isNight) return;
 
             const now = Date.now();
 
             // Update star field every 60 seconds (Earth rotation is slow)
-            if (now - lastStarUpdateTime < STAR_UPDATE_INTERVAL && catalogStars.length > 0) {
+            if (currentParticleType === 'star' && now - lastStarUpdateTime < STAR_UPDATE_INTERVAL && particles.length > 0) {
                 return;
             }
 
@@ -3051,6 +3234,7 @@
                 // Clear existing particles and replace with catalog stars
                 particles = [];
                 currentParticleType = 'star';
+                invalidateScene();
 
                 // Create Particle objects from catalog data
                 for (const starData of catalogStars) {
@@ -3073,60 +3257,77 @@
         // Low-end devices get fewer particles. Every particle costs an update +
         // a drawImage each frame, so this is the single biggest lever on old
         // phones — and at these counts the sky still looks full.
-        const PARTICLE_BUDGET = LOW_END_DEVICE ? 0.45 : 1;
-
         function createParticles(type, count) {
-            const n = Math.max(1, Math.round(count * PARTICLE_BUDGET));
+            const n = Math.max(0, Math.round(count * renderQuality.profile.particles));
+            invalidateScene();
             particles = [];
             currentParticleType = type;
             for (let i = 0; i < n; i++) {
                 particles.push(new Particle(type));
             }
+            if (type === 'rain') particles.sort((a, b) => a.rainLayer - b.rainLayer);
         }
 
         // --- Sprite cache for rain, snow, and splash droplets ---
         const spriteCache = {};
+        const RAIN_LAYERS = [
+            { length: 17, width: 0.55, speed: 26, opacity: 0.25 },
+            { length: 32, width: 0.85, speed: 48, opacity: 0.36 },
+            { length: 54, width: 1.25, speed: 82, opacity: 0.23 }
+        ];
+        let rainSlant = 0;
 
         // Create a rain sprite pre-rotated by the given angle
-        function createRainSprite(angle) {
-            const w = 4, h = 28;
+        function createRainSprite(angle, layerIndex) {
+            const layer = RAIN_LAYERS[layerIndex];
+            const w = layer.width, h = layer.length;
             // Rotated bounding box
             const sin = Math.abs(Math.sin(angle));
             const cos = Math.abs(Math.cos(angle));
-            const rw = Math.ceil(w * cos + h * sin) + 2;
-            const rh = Math.ceil(w * sin + h * cos) + 2;
+            const rw = Math.ceil(w * cos + h * sin) + 8;
+            const rh = Math.ceil(w * sin + h * cos) + 8;
             const c = document.createElement('canvas');
-            c.width = rw; c.height = rh;
+            // Tiny 2x sprites keep subpixel streaks soft on both 1x and Retina
+            // canvases; all gradients and glow are baked once, never per drop.
+            c.width = rw * 2; c.height = rh * 2;
             const cx = c.getContext('2d');
+            cx.scale(2, 2);
             cx.translate(rw / 2, rh / 2);
             cx.rotate(angle);
             // Draw raindrop centered at origin
             const grad = cx.createLinearGradient(0, -h / 2, 0, h / 2);
-            grad.addColorStop(0, 'rgba(136, 192, 208, 0.1)');
-            grad.addColorStop(0.4, 'rgba(136, 192, 208, 0.4)');
-            grad.addColorStop(1, 'rgba(136, 192, 208, 0.55)');
-            cx.fillStyle = grad;
+            grad.addColorStop(0, 'rgba(216, 231, 243, 0)');
+            grad.addColorStop(0.25, 'rgba(216, 231, 243, 0.25)');
+            grad.addColorStop(0.78, 'rgba(235, 244, 250, 0.95)');
+            grad.addColorStop(1, 'rgba(235, 244, 250, 0)');
+            cx.strokeStyle = grad;
+            cx.lineCap = 'round';
             cx.beginPath();
             cx.moveTo(0, -h / 2);
-            cx.lineTo(w * 0.35, h * 0.2);
-            cx.quadraticCurveTo(0, h * 0.55, -w * 0.35, h * 0.2);
-            cx.closePath();
-            cx.fill();
-            return c;
+            cx.lineTo(0, h / 2);
+            cx.globalAlpha = layerIndex === 2 ? 0.20 : 0.08;
+            cx.lineWidth = w + (layerIndex === 2 ? 3 : 1.2);
+            cx.stroke();
+            cx.globalAlpha = layerIndex === 2 ? 0.65 : 1;
+            cx.lineWidth = w;
+            cx.stroke();
+            return { canvas: c, width: rw, height: rh };
         }
 
         // Rebuild rain sprite when wind changes (called from weather update)
         let _cachedRainWindSpeed = -999;
+        let _cachedRainWindHoriz = null;
         function updateRainSprite() {
             const ws = weatherState.windSpeed || 0;
             // Only rebuild if wind changed significantly (>2 km/h difference)
-            if (Math.abs(ws - _cachedRainWindSpeed) < 2) return;
+            const windHoriz = weatherState.windHoriz;
+            rainSlant = windHoriz * Math.min(0.32, ws * 0.008);
+            if (ws === _cachedRainWindSpeed && windHoriz === _cachedRainWindHoriz) return;
             _cachedRainWindSpeed = ws;
-            // Average rain speedY ~16, windDrift = ws * 0.3
-            const avgSpeedY = 16;
-            const totalDx = ws * 0.3;
-            const angle = Math.atan2(totalDx, avgSpeedY);
-            spriteCache.rain = createRainSprite(angle);
+            _cachedRainWindHoriz = windHoriz;
+            // Motion and streak orientation use exactly the same wind slope.
+            const angle = -Math.atan(rainSlant);
+            spriteCache.rain = RAIN_LAYERS.map((_, i) => createRainSprite(angle, i));
         }
 
         function createSnowSprites() {
@@ -3178,7 +3379,7 @@
         }
 
         // Initialize sprite cache
-        spriteCache.rain = createRainSprite(0);
+        updateRainSprite();
         spriteCache.snow = createSnowSprites();
         spriteCache.splashDroplet = createSplashDropletSprite();
 
@@ -3190,7 +3391,7 @@
         let nextShootingStarDelay = Math.random() * 200000 + 150000; // 150-350 seconds (2.5-6 minutes)
 
         // --- Horizon Atmospheric Glow ---
-        function drawHorizonGlow() {
+        function drawHorizonGlow(ctx = cloudCtx) {
             const solarProgress = getSolarProgress();
             const h = canvasH;
             const w = canvasW;
@@ -3251,112 +3452,110 @@
         }
         let _nightGlowGrad = null, _nightGlowGradH = -1;
 
-        // Animation loop - 10fps target using setTimeout + rAF (no idle polling)
-        let frameCount = 0;
-        const targetFrameTime = 1000 / 10; // 10fps = 100ms per frame
-
-        let _frameTimer = null;   // pending setTimeout id — guards against duplicate loops
-        function scheduleNextFrame() {
+        // Slow layers retain their pixels between updates. Rain gets the budget
+        // it needs without re-rasterizing the entire sky at the same rate.
+        let _frameTimer = null, _frameRequest = null;
+        let lastFrameTime = 0, lastCloudFrame = 0, lastStarFrame = 0, nextFrameDue = 0;
+        function scheduleNextFrame(delay) {
             clearTimeout(_frameTimer);
-            // While hidden (screen off / another app), stop drawing entirely and
-            // poll slowly instead. Saves battery and avoids a backlog of frames.
-            if (document.visibilityState !== 'visible') {
-                _frameTimer = setTimeout(() => { requestAnimationFrame(animateParticles); }, 1000);
-                return;
-            }
-            _frameTimer = setTimeout(() => { requestAnimationFrame(animateParticles); }, targetFrameTime);
+            if (document.visibilityState !== 'visible') return;
+            nextFrameDue = performance.now() + delay;
+            _frameTimer = setTimeout(() => {
+                _frameRequest = requestAnimationFrame(animateParticles);
+            }, delay);
         }
 
         function animateParticles(currentTime) {
-            scheduleNextFrame();
-
-            // Nothing to draw while the app isn't on screen.
+            _frameRequest = null;
             if (document.visibilityState !== 'visible') return;
+            const started = performance.now();
+            const elapsed = lastFrameTime ? Math.min(250, currentTime - lastFrameTime) : 100;
+            lastFrameTime = currentTime;
+            const profile = renderQuality.profile;
+            const reducedMotion = motionPreference.matches;
+            const precip = currentParticleType === 'rain' || currentParticleType === 'snow';
+            const shooting = particles.some(p => p.type === 'shootingStar');
+            const fps = reducedMotion ? 2 : (precip || shooting || lightningManager.activeBolts.length ? profile.fps : profile.starFps);
 
-            // Clear using the SAME dimensions the canvases were sized with.
-            // Using window.innerWidth/innerHeight here could leave an un-cleared
-            // band (old frames accumulating into a grey smear) whenever those
-            // values drifted from the canvas size.
-            ctx.clearRect(0, 0, canvasW, canvasH);
-            cloudCtx.clearRect(0, 0, canvasW, canvasH);
-            precipCtx.clearRect(0, 0, canvasW, canvasH);
-
-            // Atmospheric glow at horizon (drawn first, behind particles)
-            drawHorizonGlow();
-
-            // Update sun halo conditions and position (every 60s), draw if active
-            sunHaloManager.updateConditionsAndPosition();
-            sunHaloManager.drawHalo(cloudCtx);
-
-            // Update cloud positions every 2nd frame (5fps), draw every frame
-            if (frameCount % 2 === 0) {
-                cloudManager.updateClouds();
+            if (sceneDirty || currentTime - lastCloudFrame >= (reducedMotion ? 1000 : 1000 / profile.cloudFps)) {
+                const cloudStep = lastCloudFrame ? Math.min(1000, currentTime - lastCloudFrame) / 200 : 0;
+                cloudCtx.clearRect(0, 0, canvasW, canvasH);
+                drawHorizonGlow();
+                sunHaloManager.updateConditionsAndPosition();
+                sunHaloManager.drawHalo(cloudCtx);
+                if (!reducedMotion) cloudManager.updateClouds(cloudStep);
+                cloudManager.drawClouds(cloudCtx);
+                lastCloudFrame = currentTime;
             }
-            cloudManager.drawClouds(cloudCtx);
 
-            // Update and draw particles (in-place removal to avoid GC)
-            let writeIdx = 0;
-            for (let i = 0; i < particles.length; i++) {
-                const result = particles[i].update();
-                if (result !== 'remove') {
-                    particles[i].draw();
-                    if (writeIdx !== i) particles[writeIdx] = particles[i];
-                    writeIdx++;
+            if (lightningManager.active && !reducedMotion) lightningManager.update(elapsed / 100);
+            const skyDue = sceneDirty || currentTime - lastStarFrame >= 1000 / (shooting ? fps : profile.starFps) || lightningManager.activeBolts.length;
+            if (skyDue) {
+                ctx.clearRect(0, 0, canvasW, canvasH);
+                const starStep = lastStarFrame ? Math.min(500, currentTime - lastStarFrame) / 100 : 1;
+                lastStarFrame = currentTime;
+                if (!precip) {
+                    let write = 0;
+                    for (const particle of particles) {
+                        if (!reducedMotion && particle.update(starStep) === 'remove') continue;
+                        particle.draw();
+                        particles[write++] = particle;
+                    }
+                    particles.length = write;
                 }
+                // Lightning belongs in front of the cloud/sky-cover layers.
+                drawStarLabels();
             }
-            particles.length = writeIdx;
 
-            // Track frame count (for shooting star timing, etc.)
-            frameCount++;
+            if (precip || sceneDirty || rainSplashes.length || lightningManager.active) {
+                precipCtx.clearRect(0, 0, canvasW, canvasH);
+                if (precip) for (const particle of particles) {
+                    particle.update(elapsed / 100 * (reducedMotion ? 0.25 : 1));
+                    particle.draw();
+                }
+                let write = 0;
+                for (const splash of rainSplashes) {
+                    if (splash.update(elapsed / 100) === 'remove') continue;
+                    splash.draw();
+                    rainSplashes[write++] = splash;
+                }
+                rainSplashes.length = write;
+                precipCtx.globalAlpha = 1;
+                if (!reducedMotion) lightningManager.drawLightning(precipCtx);
+            }
 
-            // EXISTING: Add shooting stars randomly at night
-            // Use actual sunrise/sunset times to determine nighttime
-            if (isNighttime() && currentParticleType === 'star') {
+            if (!reducedMotion && isNighttime() && currentParticleType === 'star') {
                 const now = Date.now();
                 if (now - lastShootingStarTime > nextShootingStarDelay) {
                     particles.push(new Particle('shootingStar'));
                     lastShootingStarTime = now;
-                    nextShootingStarDelay = Math.random() * 250000 + 150000; // Next: 150-400 seconds (2.5-6.5 minutes)
+                    nextShootingStarDelay = Math.random() * 250000 + 150000;
                 }
             }
-
-            // Update and draw rain splashes (in-place removal)
-            if (rainSplashes.length > 0) {
-                let sIdx = 0;
-                for (let i = 0; i < rainSplashes.length; i++) {
-                    const result = rainSplashes[i].update();
-                    if (result !== 'remove') {
-                        rainSplashes[i].draw();
-                        if (sIdx !== i) rainSplashes[sIdx] = rainSplashes[i];
-                        sIdx++;
-                    }
-                }
-                rainSplashes.length = sIdx;
-                precipCtx.globalAlpha = 1;
-            }
-
-            // NEW: Update and draw lightning (ON TOP of everything)
-            if (lightningManager.active) {
-                lightningManager.update();
-                lightningManager.drawLightning(ctx);
-            }
-
-            // Draw star labels if enabled
-            drawStarLabels();
+            sceneDirty = false;
+            const cost = performance.now() - started;
+            renderQuality.observe(cost, elapsed, nextFrameDue ? Math.max(0, currentTime - nextFrameDue) : 0);
+            scheduleNextFrame(Math.max(0, 1000 / fps - cost));
         }
 
-        // Start the animation loop
-        requestAnimationFrame(animateParticles);
-
-        // Coming back to the foreground: the viewport may have changed while we
-        // were hidden (rotation, toolbar), so re-sync the canvases and resume
-        // drawing immediately instead of waiting for the slow hidden-mode poll.
-        document.addEventListener('visibilitychange', () => {
+        function resumeRendering() {
+            clearTimeout(_frameTimer);
+            if (_frameRequest !== null) cancelAnimationFrame(_frameRequest);
+            _frameRequest = null;
             if (document.visibilityState !== 'visible') return;
             resizeCanvas();
-            clearTimeout(_frameTimer);
-            requestAnimationFrame(animateParticles);
+            lastFrameTime = lastCloudFrame = lastStarFrame = nextFrameDue = 0;
+            renderQuality.slowMs = renderQuality.fastMs = 0;
+            invalidateScene();
+            _frameRequest = requestAnimationFrame(animateParticles);
+        }
+        document.addEventListener('visibilitychange', resumeRendering);
+        if (motionPreference.addEventListener) motionPreference.addEventListener('change', () => {
+            renderQuality.setLevel(renderQuality.level);
+            lightningManager.activeBolts = [];
+            resumeRendering();
         });
+        resumeRendering();
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
@@ -3385,8 +3584,7 @@
                 // (Re)create rain when we're not already showing it, OR when the
                 // particle array is empty for any reason (makes a refresh reliably
                 // restore rain).
-                const needRain = (currentParticleType !== 'rain') || (particles.length === 0);
-                if (needRain && !rainButtonActive) {
+                if (!rainButtonActive) {
                     let rainCount;
                     if (weatherState.precipitation > 0) {
                         rainCount = calculateRainParticles(weatherState.precipitation);
@@ -3397,7 +3595,10 @@
                     } else {
                         rainCount = 180; // Moderate rain
                     }
-                    createParticles('rain', rainCount);
+                    const target = Math.round(rainCount * renderQuality.profile.particles);
+                    if (currentParticleType !== 'rain' || particles.length !== target) {
+                        createParticles('rain', rainCount);
+                    }
                 }
                 return;
             }
@@ -3416,9 +3617,10 @@
                 // (including rain) so the screen matches the current conditions.
                 // The old "keep rain" guard was for the now-disabled manual rain
                 // button and caused rain to linger after the weather cleared.
-                if (currentParticleType !== 'none' && particles.length > 0) {
+                if (currentParticleType !== 'none') {
                     particles = [];
                     currentParticleType = 'none';
+                    invalidateScene();
                 }
             }
         }
@@ -3440,12 +3642,16 @@
             // the rain particles (drawn just beneath it) stay clearly visible.
             const skyCoverOverlay = document.getElementById('sky-cover-overlay');
             const precipNow = (weatherState.precipitation || 0) > 0;
+            const rainySky = condition !== 'Snow' &&
+                (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm' || precipNow);
+            skyCoverOverlay.classList.toggle('rain-atmosphere', rainySky);
+            skyCoverOverlay.classList.toggle('rain-night', rainySky && isNighttime());
             if (condition === 'Rain' || condition === 'Drizzle' || condition === 'Thunderstorm' || precipNow) {
                 // Original overcast depth.
-                skyCoverOverlay.style.opacity = '0.9';
+                skyCoverOverlay.style.opacity = condition === 'Thunderstorm' ? '0.65' : '0.42';
             } else if (condition === 'Clouds') {
                 // Subtle haze for cloudy skies (original value).
-                skyCoverOverlay.style.opacity = '0.3';
+                skyCoverOverlay.style.opacity = '0.12';
             } else {
                 // Fade out: clear sky
                 skyCoverOverlay.style.opacity = '0';
@@ -3465,6 +3671,7 @@
             // Update particles based on weather (override time-based particles)
             const now = new Date();
             updateParticleType(now.getHours());
+            invalidateScene();
 
             // Refresh catalog stars at night — but NOT during precipitation, so
             // rain/snow isn't overwritten by stars and the sky stays starless
@@ -3472,7 +3679,7 @@
             const isPrecip = (condition === 'Rain' || condition === 'Drizzle' ||
                               condition === 'Snow' || condition === 'Thunderstorm' ||
                               (weatherState.precipitation || 0) > 0);
-            if (!isPrecip && (now.getHours() >= 20 || now.getHours() < 5)) {
+            if (!isPrecip && isNighttime()) {
                 initializeCatalogStars();
             }
 
@@ -3500,9 +3707,10 @@
                 // bonfireOn: document.getElementById('btn-bonfire').classList.contains('active'),
                 // rainVol: document.getElementById('vol-rain').value,
                 // rainOn: document.getElementById('btn-rain').classList.contains('active'),
-                dimmer: document.getElementById('dimmer-range').value
+                dimmer: Number(document.getElementById('dimmer-range').value),
+                quality: renderQuality.mode
             };
-            localStorage.setItem('ambientFlowSettings', JSON.stringify(settings));
+            try { localStorage.setItem('ambientFlowSettings', JSON.stringify(settings)); } catch (_) { /* Private browsing/storage full. */ }
         }
 
         function setupAudio(btnId, volId, audioId, keyName) {
@@ -3575,10 +3783,13 @@
             // Initialize weather system
             initWeather();
 
-            const saved = localStorage.getItem('ambientFlowSettings');
+            let saved = null;
+            try { saved = localStorage.getItem('ambientFlowSettings'); } catch (_) { /* Storage unavailable. */ }
             if (saved) {
                 try {
                     const s = JSON.parse(saved);
+                    renderQuality.setMode(s.quality);
+                    document.getElementById('quality-mode').value = renderQuality.mode;
 
                     // AUDIO CONTROLS - Temporarily disabled for release
                     /*
@@ -3601,14 +3812,14 @@
                     */
 
                     // Brightness
-                    if (s.dimmer !== undefined && typeof s.dimmer === 'number' && s.dimmer >= 0 && s.dimmer <= 0.9) {
+                    if (s.dimmer !== undefined && Number.isFinite(Number(s.dimmer)) && s.dimmer >= 0 && s.dimmer <= 0.9) {
                         dimmerRange.value = s.dimmer;
                         dimmerOverlay.style.opacity = s.dimmer;
                     }
                 } catch (error) {
                     // Failed to parse saved settings
                     // Clear corrupted data
-                    localStorage.removeItem('ambientFlowSettings');
+                    try { localStorage.removeItem('ambientFlowSettings'); } catch (_) { /* Storage unavailable. */ }
                 }
             }
         });
@@ -3710,7 +3921,7 @@
             if (soundEnabled) {
                 soundBtn.classList.add('active');
                 // 雨が降っている場合は即座に再生
-                if (weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle') {
+                if (currentParticleType === 'rain') {
                     rainAudio.play().catch(() => {});
                 }
             } else {
@@ -3723,7 +3934,7 @@
         window.updateRainSound = function() {
             if (!soundEnabled) return;
 
-            const isRaining = weatherState.condition === 'Rain' || weatherState.condition === 'Drizzle';
+            const isRaining = currentParticleType === 'rain';
 
             if (isRaining && rainAudio.paused) {
                 rainAudio.play().catch(() => {});
@@ -3741,6 +3952,7 @@
             }
 
             showStarLabels = !showStarLabels;
+            invalidateScene();
 
             if (showStarLabels) {
                 starLabelsBtn.classList.add('active');
@@ -4013,42 +4225,8 @@
         }, 2000);
 
 
-        // --- Developer Test Mode (Override System) ---
-
-        // Override variables
-        let weatherOverride = null;
-        let timeOverride = null;
-        let clockInterval = null;
-
-        // Original Date object
-        const OriginalDate = Date;
-
-        // Override Date constructor for time simulation
-        function createDateOverride() {
-            return class extends OriginalDate {
-                constructor(...args) {
-                    if (args.length === 0 && timeOverride) {
-                        // No arguments: return overridden time
-                        super();
-                        const base = new OriginalDate();
-                        base.setHours(timeOverride.hours);
-                        base.setMinutes(timeOverride.minutes);
-                        base.setSeconds(timeOverride.seconds || 0);
-                        return base;
-                    }
-                    super(...args);
-                }
-
-                static now() {
-                    if (timeOverride) {
-                        const base = new OriginalDate();
-                        base.setHours(timeOverride.hours);
-                        base.setMinutes(timeOverride.minutes);
-                        base.setSeconds(timeOverride.seconds || 0);
-                        return base.getTime();
-                    }
-                    return OriginalDate.now();
-                }
-            };
-        }
+        document.getElementById('quality-mode').addEventListener('change', (event) => {
+            renderQuality.setMode(event.target.value);
+            saveSettings();
+        });
 
