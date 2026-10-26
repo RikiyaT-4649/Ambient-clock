@@ -131,7 +131,9 @@
         <div class="info-row"><span>Temperature</span><b id="info-temp">—</b></div>
         <div class="info-divider"></div>
         <div class="info-row"><span>Rain particles</span><b id="info-rain-count">—</b></div>
-        <div class="info-note">Updated about every 30 min from Open-Meteo.</div>
+        <div class="info-row"><span>Last updated</span><b id="info-updated">—</b></div>
+        <div class="info-row"><span>Connection</span><b id="info-connection">Starting…</b></div>
+        <div class="info-note" id="weather-status" role="status">Getting live weather…</div>
     </div>
 
     <!-- Shortcut hints -->
@@ -142,6 +144,8 @@
     <!-- AUDIO ELEMENTS -->
     <audio id="audio-rain" loop preload="none" src="rain.mp3"></audio>
 
+    <div id="notification" role="status" aria-live="polite" hidden><span id="notification-message"></span><button id="notification-dismiss" type="button">Dismiss</button></div>
+    <script src="reliability.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

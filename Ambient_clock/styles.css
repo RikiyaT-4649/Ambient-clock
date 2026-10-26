@@ -65,6 +65,15 @@
         }
 
         /* --- CSS --- */
+        #notification {
+            position: fixed; z-index: 30; top: max(16px, env(safe-area-inset-top)); left: 50%;
+            transform: translateX(-50%); box-sizing: border-box; width: min(90vw, 440px);
+            padding: 18px; border-radius: 16px; background: #172333; color: #fff;
+            border: 1px solid rgba(255,255,255,.3); box-shadow: 0 8px 24px #0005;
+            font-size: 14px; line-height: 1.6; pointer-events: auto;
+        }
+        #notification[hidden] { display: none; }
+        #notification button { display: block; margin-top: 12px; padding: 8px 16px; border-radius: 8px; background: #e4edf4; color: #172333; border: 0; min-height: 44px; }
         body, html {
             margin: 0;
             padding: 0;

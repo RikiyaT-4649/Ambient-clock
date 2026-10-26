@@ -49,6 +49,7 @@ A beautiful, immersive ambient clock that visualizes real-time weather condition
 - **Lazy Loading**: Resources loaded on demand
 - **Background behavior**: Rendering stops while hidden and resumes with fresh viewport dimensions. Reduced-motion preferences limit movement and disable lightning flashes and shooting stars.
 - **Weather refresh**: About 30 minutes, with jitter and retry/backoff. Concurrent refresh triggers share a single in-flight update.
+- **Continuous operation**: Full-response deadlines, recoverable requests, source-time validation, lifecycle recovery and a validated local weather cache. See [STABILITY.md](STABILITY.md) for all twenty audit fixes and regression checks.
 
 ### Visual previews and verification
 
@@ -81,6 +82,7 @@ The checks do not establish battery use or performance on an actual older phone.
 1. Clone or download this repository
 2. Ensure all files are in the same directory:
    - `index.html`
+   - `app.js`, `styles.css`, `reliability.js`
    - `stars.js`
    - `cloud_far_1.png`
    - `cloud_main_1.png`
@@ -178,8 +180,8 @@ SOFTWARE.
 
 This application:
 - Uses your location only to fetch weather data
-- Does not store or transmit personal data
-- Makes API requests to Open-Meteo and Nominatim
+- Saves the last weather, coordinates and location name locally for recovery; cached weather is displayed for at most six hours. Timer/alarm preferences and a small bounded diagnostic history also stay in this browser.
+- Sends coordinates to Open-Meteo and Nominatim to obtain weather and location names; no additional analytics or application backend is used.
 - Runs entirely in your browser
 - No cookies or tracking
 

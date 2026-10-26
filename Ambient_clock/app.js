@@ -15,6 +15,37 @@
             return date;
         }
 
+        let rendererReady = false, graphicsAvailable = false;
+        const localIssues = [];
+        function reportIssue(kind) {
+            localIssues.push({ time: Date.now(), kind });
+            if (localIssues.length > 30) localIssues.shift();
+        }
+        function safeVisualUpdate() {
+            if (!rendererReady) return;
+            try {
+                const now = sceneDate();
+                updateTimeOfDay(now.getHours(), now.getMinutes());
+                updateCelestialBody(now.getHours(), now.getMinutes());
+                updateWeatherEffects();
+            } catch (_) { reportIssue('weather-visual-error'); }
+        }
+        function safeCanvasContext(element) {
+            let context = null;
+            try { context = element.getContext('2d'); } catch (_) { /* Static fallback. */ }
+            if (context) return context;
+            reportIssue('canvas-unavailable');
+            const noop = () => {};
+            const fallback = { _unavailable: true, canvas: element };
+            for (const name of ['setTransform','save','restore','scale','translate','rotate','clearRect','fillRect','strokeRect','beginPath','closePath','moveTo','lineTo','quadraticCurveTo','bezierCurveTo','arc','ellipse','rect','clip','fill','stroke','drawImage','fillText','strokeText','setLineDash']) fallback[name] = noop;
+            fallback.createLinearGradient = fallback.createRadialGradient = () => ({ addColorStop: noop });
+            fallback.measureText = () => ({ width: 0 });
+            return fallback;
+        }
+        function usableContext(context) {
+            try { return !context._unavailable && !(typeof context.isContextLost === 'function' && context.isContextLost()); }
+            catch (_) { return false; }
+        }
         // Logical viewport dimensions (CSS pixels) — the single source of truth for
         // all coordinate math and canvas sizing. Declared first because the clock /
         // celestial code runs during startup, before the canvas section below.
@@ -62,66 +93,11 @@
             return true;
         }
 
-        // Get user's geolocation
-        function fetchUserLocation() {
-            return new Promise((resolve) => {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        (position) => {
-                            resolve({
-                                lat: position.coords.latitude,
-                                lon: position.coords.longitude
-                            });
-                        },
-                        (error) => {
-                            resolve(weatherState.coords); // Fallback to Tokyo
-                        },
-                        { timeout: 10000 }
-                    );
-                } else {
-                    resolve(weatherState.coords); // Fallback to Tokyo
-                }
-            });
-        }
-
-        // Get city name from coordinates using reverse geocoding
         async function getCityName(lat, lon) {
-            // Validate input coordinates
-            if (!validateCoordinates(lat, lon)) {
-                // Invalid coordinates (details hidden for security)
-                return 'Unknown Location';
-            }
-
-            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en`;
-            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timeout = controller ? setTimeout(() => controller.abort(), 10000) : null;
-
-            try {
-                const response = await fetch(url, controller ? { signal: controller.signal } : undefined);
-                if (!response.ok) {
-                    throw new Error(`Geocoding API returned ${response.status}`);
-                }
-                const data = await response.json();
-
-                // Validate response structure
-                if (!data || typeof data !== 'object' || !data.address || typeof data.address !== 'object') {
-                    // Invalid API response structure
-                    return 'Unknown Location';
-                }
-
-                // Try to get city name from various fields (city, town, village, or state)
-                return data.address.city ||
-                       data.address.town ||
-                       data.address.village ||
-                       data.address.state ||
-                       data.address.country ||
-                       'Unknown Location';
-            } catch (error) {
-                // Failed to fetch city name
-                return 'Unknown Location';
-            } finally {
-                if (timeout) clearTimeout(timeout);
-            }
+            if (!validateCoordinates(lat, lon)) return 'Unknown Location';
+            const data = await AmbientReliability.requestJSON('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&accept-language=en', { timeout: 10000 });
+            const a = data && data.address;
+            return a && (a.city || a.town || a.village || a.state || a.country) || 'Unknown Location';
         }
 
         // Store wind direction and precompute its horizontal screen component
@@ -220,67 +196,11 @@
             return moonPhase;
         }
 
-        // Fetch weather data from Open-Meteo API (No API key required)
-        async function fetchWeatherData(lat, lon) {
-            // Validate input coordinates
-            if (!validateCoordinates(lat, lon)) {
-                // Invalid coordinates (details hidden for security)
-                return null;
-            }
-
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,cloud_cover,weathercode,windspeed_10m,winddirection_10m,precipitation&daily=sunrise,sunset&timezone=auto&temperature_unit=celsius&windspeed_unit=kmh`;
-
-            try {
-                // Abort after 15s so a hung request can never stall future
-                // refreshes on a flaky mobile connection.
-                const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-                const killer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
-                const response = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
-                if (killer) clearTimeout(killer);
-                if (!response.ok) {
-                    throw new Error(`Weather API returned ${response.status}`);
-                }
-                const data = await response.json();
-
-                // Validate response structure
-                if (!data || typeof data !== 'object') {
-                    throw new Error('Invalid weather API response structure');
-                }
-                if (!data.current || typeof data.current !== 'object') {
-                    throw new Error('Missing current weather data');
-                }
-                if (!data.daily || !Array.isArray(data.daily.sunrise) || !Array.isArray(data.daily.sunset)) {
-                    throw new Error('Missing daily weather data');
-                }
-
-                // Extract cloud cover from current object
-                let cloudCover = 0;
-                if (data.current.cloud_cover !== undefined) {
-                    cloudCover = data.current.cloud_cover;
-                }
-
-                return {
-                    condition: mapWeatherCode(data.current.weathercode),
-                    temp: data.current.temperature_2m,
-                    windSpeed: data.current.windspeed_10m, // 風速 (km/h)
-                    windDirection: data.current.winddirection_10m, // 風向 (度, 吹いてくる方向)
-                    cloudCover: cloudCover, // 雲量 (0-100%)
-                    precipitation: data.current.precipitation || 0, // 降水量 (mm/h)
-                    sunrise: data.daily.sunrise[0],
-                    sunset: data.daily.sunset[0],
-                    moonPhase: calculateMoonPhase() // ユリウス日を使った計算 (0.00:新月 -> 0.50:満月 -> 1.00:新月)
-                };
-            } catch (error) {
-                // Failed to fetch weather data
-                return null;
-            }
-        }
-
         // Format time from ISO string (e.g., "2025-12-20T06:30" -> "06:30")
         function formatTime(isoString) {
             if (!isoString) return '--:--';
             const date = new Date(isoString);
-            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            try { return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: weatherState.timezone || undefined }); } catch (_) { return '--:--'; }
         }
 
         // Calculate sun position as percentage (0% = sunrise, 100% = sunset)
@@ -307,224 +227,87 @@
             return Math.max(0, Math.min(100, position)); // Clamp between 0-100
         }
 
-        // Initialize weather system
-        // Track last weather update to prevent duplicate updates
-        let lastWeatherUpdate = { date: null, hour: null };
-        let lastWeatherFetchMs = 0;
-        let weatherLocationReady = false;
-        let nextWeatherAttemptMs = 0;
-        // How often to auto-refresh weather. Kept at 30 min to stay well within
-        // Open-Meteo's free per-IP limits (10k/day) even when several devices
-        // share one network, while still reflecting real conditions all day.
-        const WEATHER_REFRESH_MS = 30 * 60 * 1000; // 30 minutes
-        // Per-device random jitter (0-90s) added to the interval so multiple
-        // phones don't all hit the API in the same minute (per-minute cap).
-        const WEATHER_REFRESH_JITTER_MS = Math.floor(Math.random() * 90 * 1000);
-
-        async function initWeather() {
-            weatherFetchPending = true;
+        const WEATHER_REFRESH_MS = 30 * 60 * 1000;
+        let sunSyncAfter = 0;
+        function weatherMinutes(ms) {
             try {
-                if (previewScene) {
-                    const sunrise = sceneDate(); sunrise.setHours(6, 0, 0, 0);
-                    const sunset = sceneDate(); sunset.setHours(18, 0, 0, 0);
-                    Object.assign(weatherState, previewScene, {
-                        city: 'Preview · ' + previewName, temp: previewName === 'snow' ? -2 : 19,
-                        windSpeed: 12, moonPhase: 0.43,
-                        sunrise: sunrise.toISOString(), sunset: sunset.toISOString(),
-                        sunriseMs: +sunrise, sunsetMs: +sunset
-                    });
-                    applyWindDirection(260);
-                    updateRainSprite();
-                    document.getElementById('weather-location').textContent = weatherState.city.toUpperCase();
-                    document.getElementById('weather-temp').textContent = weatherState.temp + '°C';
-                    document.getElementById('weather-desc').textContent = weatherState.condition;
-                    document.getElementById('sun-times').textContent = '☀️ 06:00 | 🌙 18:00';
-                    document.getElementById('weather-display').style.opacity = '1';
-                    updateTimeOfDay(sceneDate().getHours(), sceneDate().getMinutes());
-                    updateCelestialBody(sceneDate().getHours(), sceneDate().getMinutes());
-                    updateWeatherEffects();
-                    return;
-                }
-                const coords = await fetchUserLocation();
-                weatherState.coords = coords;
-                weatherLocationReady = true;
-
-                // Get city name and weather data in parallel
-                const [cityName, weather] = await Promise.all([
-                    getCityName(coords.lat, coords.lon),
-                    fetchWeatherData(coords.lat, coords.lon)
-                ]);
-
-                weatherState.city = cityName;
-
-                if (weather) {
-                    weatherState.condition = weather.condition;
-                    weatherState.temp = weather.temp;
-                    weatherState.windSpeed = weather.windSpeed;
-                    applyWindDirection(weather.windDirection);
-                    if (typeof updateRainSprite === 'function') updateRainSprite();
-                    weatherState.cloudCover = weather.cloudCover;
-                    weatherState.precipitation = weather.precipitation;
-                    weatherState.moonPhase = weather.moonPhase;
-                    weatherState.sunrise = weather.sunrise;
-                    weatherState.sunset = weather.sunset;
-                    weatherState.sunriseMs = weather.sunrise ? new Date(weather.sunrise).getTime() : null;
-                    weatherState.sunsetMs = weather.sunset ? new Date(weather.sunset).getTime() : null;
-
-
-                    // Update UI
-                    document.getElementById('weather-location').textContent = cityName.toUpperCase();
-                    document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
-                    document.getElementById('weather-desc').textContent = weather.condition;
-                    document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
-
-                    // Fade in weather display
-                    document.getElementById('weather-display').style.opacity = '1';
-
-                    // Update background immediately
-                    const now = new Date();
-                    updateTimeOfDay(now.getHours(), now.getMinutes());
-
-                    // NEW: Initialize weather effects (clouds, lightning, and particles)
-                    updateWeatherEffects();
-
-                    // Record initial update time
-                    lastWeatherUpdate = { date: now.toDateString(), hour: now.getHours() };
-                    lastWeatherFetchMs = Date.now();
-                } else {
-                    scheduleWeatherRetry();
-                }
-            } catch (error) {
-                // Weather initialization failed
-                scheduleWeatherRetry();
-            } finally {
-                weatherFetchPending = false;
-                // Mark app as loaded (show celestial body and effects)
-                document.body.classList.add('app-loaded');
+                if (!weatherState.timezone) throw new Error('Local time');
+                const parts = new Intl.DateTimeFormat('en-GB', { timeZone: weatherState.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
+                return Number(parts.find(p => p.type === 'hour').value) % 24 * 60 + Number(parts.find(p => p.type === 'minute').value);
+            } catch (_) {
+                const offset = weatherState.utcOffsetSeconds;
+                const date = new Date(ms + (Number.isFinite(offset) ? offset * 1000 : 0));
+                return Number.isFinite(offset) ? date.getUTCHours() * 60 + date.getUTCMinutes() : date.getHours() * 60 + date.getMinutes();
             }
         }
-
-        // Update weather data (for scheduled updates)
-        async function updateWeather() {
-            if (previewScene || !weatherLocationReady || weatherFetchPending || Date.now() < nextWeatherAttemptMs) return;
-            weatherFetchPending = true;
-            try {
-                const coords = weatherState.coords;
-                const weather = await fetchWeatherData(coords.lat, coords.lon);
-
-                if (weather) {
-                    weatherState.condition = weather.condition;
-                    weatherState.temp = weather.temp;
-                    weatherState.windSpeed = weather.windSpeed;
-                    applyWindDirection(weather.windDirection);
-                    if (typeof updateRainSprite === 'function') updateRainSprite();
-                    weatherState.cloudCover = weather.cloudCover;
-                    weatherState.precipitation = weather.precipitation;
-                    weatherState.moonPhase = weather.moonPhase;
-                    weatherState.sunrise = weather.sunrise;
-                    weatherState.sunset = weather.sunset;
-                    weatherState.sunriseMs = weather.sunrise ? new Date(weather.sunrise).getTime() : null;
-                    weatherState.sunsetMs = weather.sunset ? new Date(weather.sunset).getTime() : null;
-
-
-                    // Update UI
-                    document.getElementById('weather-temp').textContent = `${Math.round(weather.temp)}°C`;
-                    document.getElementById('weather-desc').textContent = weather.condition;
-                    document.getElementById('sun-times').textContent = `☀️ ${formatTime(weather.sunrise)} | 🌙 ${formatTime(weather.sunset)}`;
-
-                    // Update weather-dependent visuals
-                    const visualTime = sceneDate();
-                    updateTimeOfDay(visualTime.getHours(), visualTime.getMinutes());
-                    updateCelestialBody(visualTime.getHours(), visualTime.getMinutes());
-                    updateWeatherEffects();
-
-                    // Record update time
-                    const now = new Date();
-                    lastWeatherUpdate.date = now.toDateString();
-                    lastWeatherUpdate.hour = now.getHours();
-                    lastWeatherFetchMs = Date.now();
-                    _weatherRetries = 0;
-                    nextWeatherAttemptMs = 0;
-                    clearTimeout(_weatherRetryTimer);
-                } else {
-                    scheduleWeatherRetry(); // null result (bad response)
-                }
-            } catch (error) {
-                scheduleWeatherRetry();     // network error / timeout
-            } finally {
-                weatherFetchPending = false;
-            }
+        function syncSunData(force = false) {
+            if (previewScene || !weatherState.days) return;
+            const now = Date.now();
+            if (!force && now < sunSyncAfter && sunSyncAfter - now < 60000) return;
+            sunSyncAfter = now + 60000;
+            const offset = weatherState.utcOffsetSeconds || 0;
+            const key = AmbientReliability.dayKey(now, weatherState.timezone, offset);
+            const day = weatherState.days.find(d => d.key === key);
+            weatherState.sunEstimated = !day || day.sunriseMs === null;
+            const rise = day && day.sunriseMs !== null ? day.sunriseMs : Date.parse(key + 'T06:00:00Z') - offset * 1000;
+            const set = day && day.sunsetMs !== null ? day.sunsetMs : Date.parse(key + 'T18:00:00Z') - offset * 1000;
+            weatherState.sunriseMs = rise; weatherState.sunsetMs = set;
+            weatherState.sunrise = new Date(rise).toISOString(); weatherState.sunset = new Date(set).toISOString();
+            const prefix = weatherState.sunEstimated ? '~' : '';
+            document.getElementById('sun-times').textContent = '☀️ ' + prefix + formatTime(weatherState.sunrise) + ' | 🌙 ' + prefix + formatTime(weatherState.sunset);
         }
-        let weatherFetchPending = false;
-
-        // Exponential backoff retry (1, 2, 4, 8 min — capped), so a transient
-        // network blip doesn't leave the display stale until the next interval.
-        let _weatherRetries = 0;
-        let _weatherRetryTimer = null;
-        function scheduleWeatherRetry() {
-            if (_weatherRetries >= 4) {
-                nextWeatherAttemptMs = Date.now() + WEATHER_REFRESH_MS;
-                return;
-            }
-            const delay = Math.min(8, Math.pow(2, _weatherRetries)) * 60000;
-            _weatherRetries++;
-            nextWeatherAttemptMs = Date.now() + delay;
-            clearTimeout(_weatherRetryTimer);
-            _weatherRetryTimer = setTimeout(() => {
-                if (document.visibilityState === 'visible' && navigator.onLine) updateWeather();
-            }, delay);
+        function showWeather() {
+            document.getElementById('weather-location').textContent = (weatherState.city || 'Unknown Location').toUpperCase();
+            document.getElementById('weather-temp').textContent = Math.round(weatherState.temp) + '°C';
+            document.getElementById('weather-desc').textContent = weatherState.condition;
+            document.getElementById('weather-display').style.opacity = '1';
         }
-
-        // Check if weather should be auto-refreshed.
-        // Refreshes whenever the configured interval has elapsed since the last
-        // successful fetch, so the screen reflects current conditions all day.
-        function checkWeatherUpdate() {
-            if (previewScene) return;
-            if (!weatherState.coords) return; // No location yet (initWeather not done)
-            // Don't fetch while the app is backgrounded / phone is locked — saves
-            // API calls; the visibilitychange handler refreshes on return.
-            if (document.visibilityState !== 'visible') return;
-            if (!navigator.onLine) return; // Offline: the 'online' handler retries.
-            if (Date.now() - lastWeatherFetchMs >= WEATHER_REFRESH_MS + WEATHER_REFRESH_JITTER_MS) {
-                updateWeather();
+        const weatherService = AmbientReliability.createWeatherService({
+            interval: WEATHER_REFRESH_MS, fallback: weatherState.coords, valid: validateCoordinates,
+            url: coords => 'https://api.open-meteo.com/v1/forecast?latitude=' + coords.lat + '&longitude=' + coords.lon + '&current=temperature_2m,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,precipitation&daily=sunrise,sunset&forecast_days=3&timezone=auto&timeformat=unixtime&temperature_unit=celsius&wind_speed_unit=kmh',
+            city: coords => getCityName(coords.lat, coords.lon),
+            onCity: city => { weatherState.city = city; document.getElementById('weather-location').textContent = city.toUpperCase(); },
+            onStatus: () => { if (rendererReady) updateWeatherHealth(); },
+            onData: (data, meta) => {
+                Object.assign(weatherState, data, meta, { condition: mapWeatherCode(data.code), moonPhase: calculateMoonPhase() });
+                applyWindDirection(data.windDirection);
+                syncSunData(true);
+                showWeather();
+                safeVisualUpdate();
+                if (rendererReady) { try { updateRainSprite(); } catch (_) { reportIssue('rain-sprite-error'); } }
             }
+        });
+        function initWeather() {
+            if (previewScene) {
+                const rise = sceneDate(); rise.setHours(6, 0, 0, 0);
+                const set = sceneDate(); set.setHours(18, 0, 0, 0);
+                Object.assign(weatherState, previewScene, { city: 'Preview · ' + previewName, temp: previewName === 'snow' ? -2 : 19, windSpeed: 12, moonPhase: 0.43, sunrise: rise.toISOString(), sunset: set.toISOString(), sunriseMs: +rise, sunsetMs: +set });
+                applyWindDirection(260); showWeather();
+                document.getElementById('sun-times').textContent = '☀️ 06:00 | 🌙 18:00';
+                safeVisualUpdate();
+                if (rendererReady) updateRainSprite();
+            } else weatherService.start().catch(() => reportIssue('weather-start-error'));
+            document.body.classList.add('app-loaded');
         }
-
-        // Start weather update checker (runs every minute)
-        setInterval(checkWeatherUpdate, 60000); // Check every 60 seconds
-
-        // Watchdog: mobile browsers throttle or drop background timers, so a
-        // long-running session can silently stop refreshing. Re-check on every
-        // clock tick (cheap) and force a fetch if we've clearly overshot the
-        // interval — this is what keeps the page updating when left open for days.
+        function updateWeather() { if (!previewScene) return weatherService.refresh(); }
         function weatherWatchdog() {
-            if (previewScene) return;
-            if (!weatherState.coords) return;
-            if (document.visibilityState !== 'visible' || !navigator.onLine) return;
-            const overdueBy = Date.now() - lastWeatherFetchMs;
-            if (overdueBy >= WEATHER_REFRESH_MS * 2) {
-                updateWeather();
+            if (!previewScene) weatherService.tick();
+            syncSunData();
+        }
+        function recoverPage() {
+            if (document.visibilityState === 'hidden') return;
+            if (!previewScene) weatherService.wake();
+            sunSyncAfter = 0;
+            if (rendererReady) {
+                try { resumeRendering(); safeVisualUpdate(); } catch (_) { reportIssue('resume-error'); }
+                try { syncPomodoro(); checkAlarm(); requestWakeLock(); } catch (_) { reportIssue('tools-resume-error'); }
             }
         }
-
-        // Retry promptly once connectivity returns.
-        window.addEventListener('online', () => {
-            if (weatherState.coords && Date.now() - lastWeatherFetchMs >= 60000) {
-                updateWeather();
-            }
-        });
-
-        // Refresh as soon as the app becomes visible again (e.g. unlocking the
-        // phone or switching back to the tab) if the data is older than 5 min,
-        // so reopening never shows stale weather.
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' &&
-                weatherState.coords &&
-                Date.now() - lastWeatherFetchMs >= 5 * 60 * 1000) {
-                updateWeather();
-            }
-        });
-
+        window.addEventListener('DOMContentLoaded', initWeather, { once: true });
+        window.addEventListener('online', recoverPage);
+        window.addEventListener('pageshow', recoverPage);
+        document.addEventListener('resume', recoverPage);
+        document.addEventListener('visibilitychange', recoverPage);
 
         // --- 2. Clock Logic + Time of Day System ---
         let isAnalogClock = false;
@@ -584,8 +367,8 @@
             const dateOptions = { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' };
             const dateStr = now.toLocaleDateString('en-US', dateOptions);
 
-            document.getElementById('time').textContent = timeStr;
-            document.getElementById('date').textContent = dateStr;
+            setInfo('time', timeStr);
+            setInfo('date', dateStr);
 
             // アナログ時計の針を更新
             if (isAnalogClock) {
@@ -594,6 +377,7 @@
 
             // Cheap safety net: catches throttled/dropped refresh timers.
             weatherWatchdog();
+            if (rendererReady) updateWeatherHealth();
 
             // Keep the live-parameters panel current while it's open.
             if (typeof updateInfoPanel === 'function') {
@@ -602,15 +386,17 @@
             }
 
             // 背景と天体の更新は1分ごとに実行（チカチカ防止）
-            const currentMinute = now.getMinutes();
+            const currentMinute = Math.floor(+now / 60000);
             if (currentMinute !== lastUpdateMinute) {
                 lastUpdateMinute = currentMinute;
+                try {
                 // 時間帯に応じた背景を更新
                 updateTimeOfDay(now.getHours(), now.getMinutes());
                 // 太陽・月の位置を更新
                 updateCelestialBody(now.getHours(), now.getMinutes());
                 // 時計テキストの呼吸（時間帯で微妙にtext-shadowの色を変化）
                 updateClockBreathing(now.getHours());
+                } catch (_) { reportIssue('clock-visual-error'); }
             }
         }
 
@@ -824,7 +610,7 @@
         // 実際の日の出・日の入り時刻を使用
         function updateTimeOfDay(hour, minute = 0) {
             const bgContainer = document.getElementById('bg-container');
-            const totalMinutes = hour * 60 + minute;
+            const totalMinutes = weatherMinutes(+sceneDate());
 
             // 実際の日の出・日の入り時刻から時間帯を計算
             let timeGradients;
@@ -833,8 +619,8 @@
                 // 実際のデータがある場合、日の出・日の入り時刻を基準に計算
                 const sunriseTime = new Date(weatherState.sunrise);
                 const sunsetTime = new Date(weatherState.sunset);
-                const sunriseMinutes = sunriseTime.getHours() * 60 + sunriseTime.getMinutes();
-                const sunsetMinutes = sunsetTime.getHours() * 60 + sunsetTime.getMinutes();
+                const sunriseMinutes = weatherMinutes(+sunriseTime);
+                const sunsetMinutes = weatherMinutes(+sunsetTime);
 
                 // 動的な時間帯の定義（日の出・日の入り時刻を基準）- ドラマチックな色彩設計
                 timeGradients = [
@@ -948,6 +734,7 @@
 
         // Calculate solar progress (0.0 = sunrise, 1.0 = sunset, -1 = night)
         function getSolarProgress() {
+            syncSunData();
             const now = +sceneDate();
             const { sunriseMs, sunsetMs } = weatherState;
 
@@ -976,6 +763,7 @@
 
         // Check if it's nighttime based on cached sunrise/sunset timestamps
         function isNighttime() {
+            syncSunData();
             const { sunriseMs, sunsetMs } = weatherState;
 
             // If no cached timestamps, use fixed time (20:00-05:00)
@@ -1283,16 +1071,17 @@
 
         // --- 3. Particle System (Canvas) ---
         const canvas = document.getElementById('particle-canvas');
-        const ctx = canvas.getContext('2d');
+        let ctx = safeCanvasContext(canvas);
 
         // Cloud canvas (separate layer)
         const cloudCanvas = document.getElementById('cloud-canvas');
-        const cloudCtx = cloudCanvas.getContext('2d');
+        let cloudCtx = safeCanvasContext(cloudCanvas);
 
         // Precipitation canvas (rain/snow/splashes) — frontmost weather layer,
         // sits above the sky-cover overlay so rain is never dimmed by it.
         const precipCanvas = document.getElementById('precip-canvas');
-        const precipCtx = precipCanvas.getContext('2d');
+        let precipCtx = safeCanvasContext(precipCanvas);
+        graphicsAvailable = [ctx, cloudCtx, precipCtx].every(usableContext);
 
         // Sin/Cos lookup table (1024 entries, ~0.35° precision)
         const LUT_SIZE = 1024;
@@ -1326,7 +1115,7 @@
             const cx = dim / 2;
             const c = document.createElement('canvas');
             c.width = dim; c.height = dim;
-            const sctx = c.getContext('2d');
+            const sctx = safeCanvasContext(c);
 
             // Outer glow
             const glowGrad = sctx.createRadialGradient(cx, cx, 0, cx, cx, radius);
@@ -1351,6 +1140,7 @@
             sctx.beginPath(); sctx.arc(cx, cx, qs * 0.5, 0, Math.PI * 2); sctx.fill();
 
             sprite = { canvas: c, dim: dim };
+            if (starSpriteCache.size >= 384) starSpriteCache.delete(starSpriteCache.keys().next().value);
             starSpriteCache.set(key, sprite);
             return sprite;
         }
@@ -1380,7 +1170,7 @@
                 this.setLevel(this.mode === 'high' ? 2 : this.mode === 'eco' ? 0 : (LOW_END_DEVICE ? 0 : 1));
             },
             setLevel(level) {
-                this.level = level;
+                this.level = Math.max(0, Math.min(2, level));
                 this.slowMs = this.fastMs = 0;
                 this.lastChange = performance.now();
                 document.documentElement.dataset.quality = this.profile.name.toLowerCase();
@@ -1402,7 +1192,7 @@
                 this.fastMs = !slow && cost < budget * 0.2 ? this.fastMs + elapsed : 0;
                 const sinceChange = performance.now() - this.lastChange;
                 if (this.slowMs > 4000 && sinceChange > 8000 && this.level > 0) this.setLevel(this.level - 1);
-                else if (this.fastMs > 45000 && sinceChange > 45000 && this.level < 2) this.setLevel(this.level + 1);
+                else if (this.fastMs > 45000 && sinceChange > 45000 && this.level < (LOW_END_DEVICE ? 1 : 2)) this.setLevel(this.level + 1);
             }
         };
         document.documentElement.dataset.quality = renderQuality.profile.name.toLowerCase();
@@ -2163,7 +1953,7 @@
 
         // --- リアルな雲の「素材（ノイズテクスチャ）」を生成する関数 ---
         const cloudBrushCanvas = document.createElement('canvas');
-        const cloudBrushCtx = cloudBrushCanvas.getContext('2d');
+        const cloudBrushCtx = safeCanvasContext(cloudBrushCanvas);
         // 解像度を上げてディテールを細かくする
         cloudBrushCanvas.width = 256;
         cloudBrushCanvas.height = 256;
@@ -2433,7 +2223,7 @@
                 const imgWidth = Math.min(384, this.image.naturalWidth);
                 const imgHeight = Math.round(imgWidth * this.image.naturalHeight / this.image.naturalWidth);
                 const offscreen = document.createElement('canvas');
-                const offCtx = offscreen.getContext('2d');
+                const offCtx = safeCanvasContext(offscreen);
 
                 offscreen.width = imgWidth * 2;
                 offscreen.height = imgHeight;
@@ -2551,7 +2341,7 @@
 
                 if (!this._haloCanvas) {
                     this._haloCanvas = document.createElement('canvas');
-                    this._haloCtx = this._haloCanvas.getContext('2d');
+                    this._haloCtx = safeCanvasContext(this._haloCanvas);
                 }
                 this._haloCanvas.width = dim;
                 this._haloCanvas.height = dim;
@@ -3290,7 +3080,7 @@
             // Tiny 2x sprites keep subpixel streaks soft on both 1x and Retina
             // canvases; all gradients and glow are baked once, never per drop.
             c.width = rw * 2; c.height = rh * 2;
-            const cx = c.getContext('2d');
+            const cx = safeCanvasContext(c);
             cx.scale(2, 2);
             cx.translate(rw / 2, rh / 2);
             cx.rotate(angle);
@@ -3339,7 +3129,7 @@
                 const dim = (size + padding) * 2;
                 const c = document.createElement('canvas');
                 c.width = dim; c.height = dim;
-                const cx = c.getContext('2d');
+                const cx = safeCanvasContext(c);
                 const center = dim / 2;
                 // Glow layer
                 const glow = cx.createRadialGradient(center, center, 0, center, center, size + padding);
@@ -3365,7 +3155,7 @@
             const dim = 8;
             const c = document.createElement('canvas');
             c.width = dim; c.height = dim;
-            const cx = c.getContext('2d');
+            const cx = safeCanvasContext(c);
             const center = dim / 2;
             const grad = cx.createRadialGradient(center, center, 0, center, center, center);
             grad.addColorStop(0, 'rgba(136, 192, 208, 1)');
@@ -3455,10 +3245,11 @@
         // Slow layers retain their pixels between updates. Rain gets the budget
         // it needs without re-rasterizing the entire sky at the same rate.
         let _frameTimer = null, _frameRequest = null;
+        let lastRenderHeartbeat = performance.now(), renderFailures = 0, renderRepairAfter = 0;
         let lastFrameTime = 0, lastCloudFrame = 0, lastStarFrame = 0, nextFrameDue = 0;
         function scheduleNextFrame(delay) {
             clearTimeout(_frameTimer);
-            if (document.visibilityState !== 'visible') return;
+            if (document.visibilityState !== 'visible' || !graphicsAvailable) return;
             nextFrameDue = performance.now() + delay;
             _frameTimer = setTimeout(() => {
                 _frameRequest = requestAnimationFrame(animateParticles);
@@ -3466,6 +3257,21 @@
         }
 
         function animateParticles(currentTime) {
+            _frameRequest = null;
+            if (document.visibilityState !== 'visible' || !graphicsAvailable) return;
+            let delay = 1000 / renderQuality.profile.fps;
+            try {
+                delay = drawFrame(currentTime);
+                lastRenderHeartbeat = performance.now(); renderFailures = 0;
+            } catch (_) {
+                reportIssue('render-error');
+                renderFailures++;
+                renderRepairAfter = performance.now() + Math.min(30000, 1000 * Math.pow(2, renderFailures));
+                delay = Math.min(30000, 1000 * Math.pow(2, renderFailures));
+                try { if (renderQuality.level > 0) renderQuality.setLevel(0); } catch (_) { /* Keep weather alive. */ }
+            } finally { scheduleNextFrame(delay); }
+        }
+        function drawFrame(currentTime) {
             _frameRequest = null;
             if (document.visibilityState !== 'visible') return;
             const started = performance.now();
@@ -3535,14 +3341,14 @@
             sceneDirty = false;
             const cost = performance.now() - started;
             renderQuality.observe(cost, elapsed, nextFrameDue ? Math.max(0, currentTime - nextFrameDue) : 0);
-            scheduleNextFrame(Math.max(0, 1000 / fps - cost));
+            return Math.max(0, 1000 / fps - cost);
         }
 
         function resumeRendering() {
             clearTimeout(_frameTimer);
             if (_frameRequest !== null) cancelAnimationFrame(_frameRequest);
             _frameRequest = null;
-            if (document.visibilityState !== 'visible') return;
+            if (document.visibilityState !== 'visible' || !graphicsAvailable) return;
             resizeCanvas();
             lastFrameTime = lastCloudFrame = lastStarFrame = nextFrameDue = 0;
             renderQuality.slowMs = renderQuality.fastMs = 0;
@@ -3556,6 +3362,39 @@
             resumeRendering();
         });
         resumeRendering();
+
+        function restoreGraphics() {
+            if (document.visibilityState !== 'visible') return;
+            try {
+                ctx = safeCanvasContext(canvas);
+                cloudCtx = safeCanvasContext(cloudCanvas);
+                precipCtx = safeCanvasContext(precipCanvas);
+                graphicsAvailable = [ctx, cloudCtx, precipCtx].every(usableContext);
+                if (!graphicsAvailable) return;
+                _canvasSizedDpr = _canvasCloudScale = -1;
+                starSpriteCache.clear(); cloudTextureCache.clear();
+                for (const layer of cloudManager.layers) for (const cloud of layer) cloud.effectCacheDirty = true;
+                _cachedRainWindSpeed = -999; updateRainSprite();
+                spriteCache.snow = createSnowSprites();
+                spriteCache.splashDroplet = createSplashDropletSprite();
+                sunHaloManager._haloDirty = true;
+                sunHaloManager._haloCanvas = null;
+                _nightGlowGrad = null; _nightGlowGradH = -1;
+                resizeCanvas(); resumeRendering();
+            } catch (_) { graphicsAvailable = false; reportIssue('graphics-restore-error'); }
+        }
+        for (const surface of [canvas, cloudCanvas, precipCanvas]) {
+            surface.addEventListener('contextlost', () => { graphicsAvailable = false; reportIssue('context-lost'); });
+            surface.addEventListener('contextrestored', restoreGraphics);
+        }
+        setInterval(() => {
+            if (document.visibilityState !== 'visible' || performance.now() < renderRepairAfter) return;
+            if (![ctx, cloudCtx, precipCtx].every(usableContext)) graphicsAvailable = false;
+            if (!graphicsAvailable || performance.now() - lastRenderHeartbeat > 20000) {
+                renderRepairAfter = performance.now() + 30000;
+                restoreGraphics();
+            }
+        }, 15000);
 
         // Update particle type based on weather and time of day
         function updateParticleType(hour) {
@@ -3780,8 +3619,7 @@
 
         // --- 7. Restore Settings on Initial Load + Fetch Weather Data ---
         window.addEventListener('DOMContentLoaded', () => {
-            // Initialize weather system
-            initWeather();
+            // Weather startup is registered before graphics initialization.
 
             let saved = null;
             try { saved = localStorage.getItem('ambientFlowSettings'); } catch (_) { /* Storage unavailable. */ }
@@ -3836,49 +3674,56 @@
 
         // --- 8. Wake Lock & Fullscreen ---
         const wakeLockBtn = document.getElementById('btn-wakelock');
-        let wakeLock = null;
-        let wakeLockDesired = false; // User's intent (survives system auto-release)
-
-        async function requestWakeLock() {
-            if (!('wakeLock' in navigator) || wakeLock) return;
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-                wakeLock.addEventListener('release', () => {
-                    wakeLock = null;
-                    // iOS releases the lock when backgrounded. Only show OFF if
-                    // the user actually turned it off; otherwise we re-acquire
-                    // on return (see visibilitychange below).
-                    if (!wakeLockDesired) {
-                        wakeLockBtn.textContent = "Always On OFF";
-                        wakeLockBtn.classList.remove('active');
-                    }
-                });
-            } catch (err) { /* WakeLock not supported or failed */ }
+        let wakeLock = null, wakeLockDesired = false, wakeLockPending = false, wakeLockAttempt = 0, wakeRetryTimer = null, wakeFailures = 0, wakePendingSince = 0;
+        function showWakeLock() {
+            wakeLockBtn.textContent = !('wakeLock' in navigator) ? 'Always On unavailable' : wakeLock ? 'Always On ON' : wakeLockDesired ? 'Always On waiting' : 'Always On OFF';
+            wakeLockBtn.classList.toggle('active', !!wakeLock);
+            wakeLockBtn.disabled = !('wakeLock' in navigator);
         }
-
+        function retryWakeLock() {
+            clearTimeout(wakeRetryTimer);
+            if (!wakeLockDesired || document.visibilityState !== 'visible') return;
+            wakeRetryTimer = setTimeout(() => { wakeRetryTimer = null; requestWakeLock(); }, Math.min(60000, 5000 * Math.pow(2, Math.min(4, wakeFailures++))));
+        }
+        async function requestWakeLock() {
+            if (wakeLock && wakeLock.released) { wakeLock = null; showWakeLock(); }
+            if (wakeLockPending && (Date.now() - wakePendingSince > 15000 || Date.now() < wakePendingSince)) { wakeLockAttempt++; wakeLockPending = false; }
+            if (!wakeLockDesired || document.visibilityState !== 'visible' || !('wakeLock' in navigator) || wakeLock || wakeLockPending) return;
+            const attempt = ++wakeLockAttempt;
+            wakeLockPending = true; wakePendingSince = Date.now();
+            const deadline = setTimeout(() => {
+                if (attempt !== wakeLockAttempt || !wakeLockPending) return;
+                wakeLockAttempt++; wakeLockPending = false; showWakeLock(); retryWakeLock();
+            }, 15000);
+            try {
+                const lock = await navigator.wakeLock.request('screen');
+                if (!wakeLockDesired || attempt !== wakeLockAttempt) { await lock.release(); return; }
+                wakeLock = lock; wakeFailures = 0;
+                lock.addEventListener('release', () => {
+                    if (wakeLock !== lock) return;
+                    wakeLock = null; showWakeLock(); retryWakeLock();
+                });
+                clearTimeout(wakeRetryTimer); wakeRetryTimer = null;
+            } catch (_) { reportIssue('wake-lock-unavailable'); retryWakeLock(); }
+            finally {
+                clearTimeout(deadline);
+                if (attempt === wakeLockAttempt) wakeLockPending = false;
+                showWakeLock();
+                if (wakeLockDesired && !wakeLock && !wakeRetryTimer && !wakeLockPending) retryWakeLock();
+            }
+        }
         async function toggleWakeLock() {
-            if (!('wakeLock' in navigator)) return;
-            if (!wakeLockDesired) {
-                wakeLockDesired = true;
-                wakeLockBtn.textContent = "Always On ON";
-                wakeLockBtn.classList.add('active');
-                await requestWakeLock();
-            } else {
-                wakeLockDesired = false;
-                wakeLockBtn.textContent = "Always On OFF";
-                wakeLockBtn.classList.remove('active');
-                if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            wakeLockDesired = !wakeLockDesired;
+            if (wakeLockDesired) { showWakeLock(); await requestWakeLock(); }
+            else {
+                wakeLockAttempt++; wakeLockPending = false; clearTimeout(wakeRetryTimer); wakeRetryTimer = null;
+                const lock = wakeLock; wakeLock = null;
+                showWakeLock();
+                if (lock) { try { await lock.release(); } catch (_) { /* Already released. */ } }
             }
         }
         wakeLockBtn.addEventListener('click', toggleWakeLock);
-
-        // Re-acquire the wake lock when returning to the app, since the system
-        // drops it on background — keeps "Always On" actually staying on.
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && wakeLockDesired) {
-                requestWakeLock();
-            }
-        });
+        showWakeLock();
 
         // Digital/Analog clock toggle
         const clockToggleBtn = document.getElementById('btn-clock-toggle');
@@ -3994,116 +3839,88 @@
         });
 
 
-        // --- 9. Pomodoro Timer ---
-        let pomodoroInterval = null;
-        let pomodoroSeconds = 25 * 60; // 25 minutes
-        let pomodoroMode = 'work'; // 'work' or 'break'
-        let pomodoroRunning = false;
-
+        function notifyUser(message) {
+            document.getElementById('notification-message').textContent = message;
+            document.getElementById('notification').hidden = false;
+        }
+        let pomodoroInterval = null, pomodoroSeconds = 25 * 60, pomodoroMode = 'work', pomodoroRunning = false, pomodoroDeadline = 0;
+        let alarmEnabled = false, alarmInterval = null, alarmNextAt = 0;
+        function saveTools() {
+            AmbientReliability.write('ambientClockToolsV1', { version: 1, pomodoroSeconds, pomodoroMode, pomodoroRunning, pomodoroDeadline, alarmEnabled, alarmNextAt, alarmTime: document.getElementById('alarm-time').value });
+        }
         function updatePomodoroDisplay() {
-            const minutes = Math.floor(pomodoroSeconds / 60);
-            const seconds = pomodoroSeconds % 60;
-            document.getElementById('pomodoro-time').textContent =
-                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            document.getElementById('pomodoro-time').textContent = String(Math.floor(pomodoroSeconds / 60)).padStart(2, '0') + ':' + String(pomodoroSeconds % 60).padStart(2, '0');
+            document.getElementById('pomodoro-start').textContent = pomodoroRunning ? 'Stop' : 'Start';
+            document.getElementById('pomodoro-start').classList.toggle('active', pomodoroRunning);
         }
-
-        function startPomodoro() {
+        function syncPomodoro() {
             if (pomodoroRunning) {
-                // Stop
-                clearInterval(pomodoroInterval);
-                pomodoroRunning = false;
-                document.getElementById('pomodoro-start').textContent = 'Start';
-                document.getElementById('pomodoro-start').classList.remove('active');
-            } else {
-                // Start
-                pomodoroRunning = true;
-                document.getElementById('pomodoro-start').textContent = 'Stop';
-                document.getElementById('pomodoro-start').classList.add('active');
-
-                pomodoroInterval = setInterval(() => {
-                    pomodoroSeconds--;
-                    updatePomodoroDisplay();
-
-                    if (pomodoroSeconds <= 0) {
-                        // Timer complete
-                        clearInterval(pomodoroInterval);
-                        pomodoroRunning = false;
-                        document.getElementById('pomodoro-start').textContent = 'Start';
-                        document.getElementById('pomodoro-start').classList.remove('active');
-
-                        // Notification
-                        if (pomodoroMode === 'work') {
-                            alert('Work session complete! Take a 5-minute break.');
-                            pomodoroMode = 'break';
-                            pomodoroSeconds = 5 * 60;
-                            document.getElementById('pomodoro-status').textContent = 'Break time';
-                        } else {
-                            alert('Break complete! Start your next work session.');
-                            pomodoroMode = 'work';
-                            pomodoroSeconds = 25 * 60;
-                            document.getElementById('pomodoro-status').textContent = 'Work time';
-                        }
-                        updatePomodoroDisplay();
-                    }
-                }, 1000);
+                pomodoroSeconds = Math.max(0, Math.ceil((pomodoroDeadline - Date.now()) / 1000));
+                if (pomodoroSeconds === 0) {
+                    pomodoroRunning = false;
+                    clearInterval(pomodoroInterval);
+                    const completedWork = pomodoroMode === 'work';
+                    pomodoroMode = completedWork ? 'break' : 'work';
+                    pomodoroSeconds = completedWork ? 300 : 1500;
+                    document.getElementById('pomodoro-status').textContent = completedWork ? 'Break time' : 'Work time';
+                    notifyUser(completedWork ? 'Work session complete. Take a 5-minute break.' : 'Break complete. Start your next work session.');
+                    saveTools();
+                }
             }
-        }
-
-        function resetPomodoro() {
-            clearInterval(pomodoroInterval);
-            pomodoroRunning = false;
-            pomodoroMode = 'work';
-            pomodoroSeconds = 25 * 60;
-            document.getElementById('pomodoro-start').textContent = 'Start';
-            document.getElementById('pomodoro-start').classList.remove('active');
-            document.getElementById('pomodoro-status').textContent = 'Ready';
             updatePomodoroDisplay();
         }
-
-        document.getElementById('pomodoro-start').addEventListener('click', startPomodoro);
-        document.getElementById('pomodoro-reset').addEventListener('click', resetPomodoro);
-
-
-        // --- 10. Alarm Function ---
-        let alarmEnabled = false;
-        let alarmChecked = false;
-        let alarmInterval = null;
-
+        function startPomodoro() {
+            if (pomodoroRunning) { syncPomodoro(); pomodoroRunning = false; clearInterval(pomodoroInterval); }
+            else { pomodoroDeadline = Date.now() + pomodoroSeconds * 1000; pomodoroRunning = true; clearInterval(pomodoroInterval); pomodoroInterval = setInterval(syncPomodoro, 1000); }
+            updatePomodoroDisplay(); saveTools();
+        }
+        function resetPomodoro() {
+            clearInterval(pomodoroInterval); pomodoroRunning = false; pomodoroMode = 'work'; pomodoroSeconds = 1500; pomodoroDeadline = 0;
+            document.getElementById('pomodoro-status').textContent = 'Ready'; updatePomodoroDisplay(); saveTools();
+        }
+        function nextAlarm(now = Date.now()) {
+            const value = document.getElementById('alarm-time').value;
+            if (!/^\d{2}:\d{2}$/.test(value)) return 0;
+            const parts = value.split(':').map(Number);
+            const date = new Date(now); date.setHours(parts[0], parts[1], 0, 0);
+            if (+date <= now) date.setDate(date.getDate() + 1);
+            return +date;
+        }
         function checkAlarm() {
-            if (!alarmEnabled) return;
-
-            const now = new Date();
-            const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const alarmTime = document.getElementById('alarm-time').value;
-
-            if (currentTime === alarmTime && !alarmChecked) {
-                alarmChecked = true;
-                alert('Alarm: The set time has been reached!');
-                // Reset check after 1 minute
-                setTimeout(() => { alarmChecked = false; }, 60000);
+            if (!alarmEnabled || !alarmNextAt) return;
+            const now = Date.now();
+            if (now >= alarmNextAt) {
+                if (now - alarmNextAt < 86400000) notifyUser('Alarm: the set time has been reached.');
+                alarmNextAt = nextAlarm(now); saveTools();
             }
         }
-
-        document.getElementById('alarm-toggle').addEventListener('click', (e) => {
-            alarmEnabled = !alarmEnabled;
-            e.target.textContent = alarmEnabled ? 'OFF' : 'ON';
-            e.target.classList.toggle('active', alarmEnabled);
-
-            if (alarmEnabled) {
-                // Clear existing interval before creating new one
-                if (alarmInterval) {
-                    clearInterval(alarmInterval);
-                }
-                alarmInterval = setInterval(checkAlarm, 10000); // 10秒ごとにチェック
-            } else {
-                // Clear interval when disabled
-                if (alarmInterval) {
-                    clearInterval(alarmInterval);
-                    alarmInterval = null;
-                }
-            }
+        function showAlarm() {
+            const button = document.getElementById('alarm-toggle');
+            button.textContent = alarmEnabled ? 'OFF' : 'ON'; button.classList.toggle('active', alarmEnabled);
+            clearInterval(alarmInterval);
+            if (alarmEnabled) alarmInterval = setInterval(checkAlarm, 10000);
+        }
+        document.getElementById('pomodoro-start').addEventListener('click', startPomodoro);
+        document.getElementById('pomodoro-reset').addEventListener('click', resetPomodoro);
+        document.getElementById('alarm-toggle').addEventListener('click', () => {
+            alarmEnabled = !alarmEnabled; alarmNextAt = alarmEnabled ? nextAlarm() : 0; showAlarm(); saveTools();
         });
-
+        document.getElementById('alarm-time').addEventListener('change', () => { if (alarmEnabled) alarmNextAt = nextAlarm(); saveTools(); });
+        document.getElementById('notification-dismiss').addEventListener('click', () => { document.getElementById('notification').hidden = true; });
+        window.addEventListener('pagehide', saveTools);
+        const toolsSaved = AmbientReliability.read('ambientClockToolsV1');
+        if (toolsSaved && toolsSaved.version === 1) {
+            pomodoroMode = toolsSaved.pomodoroMode === 'break' ? 'break' : 'work';
+            document.getElementById('pomodoro-status').textContent = pomodoroMode === 'break' ? 'Break time' : 'Ready';
+            pomodoroSeconds = Number.isFinite(toolsSaved.pomodoroSeconds) ? Math.max(0, Math.min(1500, Math.round(toolsSaved.pomodoroSeconds))) : 1500;
+            pomodoroDeadline = Number.isFinite(toolsSaved.pomodoroDeadline) ? toolsSaved.pomodoroDeadline : 0;
+            pomodoroRunning = toolsSaved.pomodoroRunning === true && pomodoroDeadline > 0;
+            if (pomodoroRunning) { syncPomodoro(); if (pomodoroRunning) pomodoroInterval = setInterval(syncPomodoro, 1000); }
+            if (/^([01]\d|2[0-3]):[0-5]\d$/.test(toolsSaved.alarmTime)) document.getElementById('alarm-time').value = toolsSaved.alarmTime;
+            alarmEnabled = toolsSaved.alarmEnabled === true;
+            alarmNextAt = Number.isFinite(toolsSaved.alarmNextAt) && toolsSaved.alarmNextAt > 0 ? toolsSaved.alarmNextAt : nextAlarm();
+            showAlarm(); checkAlarm(); updatePomodoroDisplay();
+        }
 
         // --- 11. Keyboard Shortcuts ---
         let toolsPanelVisible = false;
@@ -4132,9 +3949,22 @@
         }
         function setInfo(id, text) {
             const el = document.getElementById(id);
-            if (el) el.textContent = (text === null || text === undefined) ? '—' : text;
+            const value = (text === null || text === undefined) ? '—' : String(text);
+            if (el && el.textContent !== value) el.textContent = value;
+        }
+        function updateWeatherHealth() {
+            const health = previewScene ? null : weatherService.snapshot();
+            if (previewScene) { setInfo('info-connection', 'Preview'); setInfo('weather-status', 'Fixed preview weather'); return; }
+            const age = health.observedAt ? Math.max(0, Math.floor((Date.now() - health.observedAt) / 60000)) : null;
+            setInfo('info-updated', age === null ? '—' : age + ' min ago');
+            const labels = { starting: 'Starting', updating: 'Updating', live: 'Connected', cached: 'Saved weather', stale: 'Retrying', retrying: 'Retrying' };
+            setInfo('info-connection', labels[health.status] || health.status);
+            const wait = Math.max(1, Math.ceil((health.nextAt - Date.now()) / 60000));
+            const note = health.lastError ? 'Showing last available weather. Retrying in ' + wait + ' min.' : health.status === 'cached' ? 'Saved weather; checking for an update.' : 'Updated about every 30 min from Open-Meteo.';
+            setInfo('weather-status', note + (weatherState.sunEstimated ? ' Sun times are approximate.' : ''));
         }
         function updateInfoPanel() {
+            updateWeatherHealth();
             const w = weatherState;
             setInfo('info-condition', w.condition || '—');
             const p = fmtNum(w.precipitation, 1);
@@ -4229,4 +4059,9 @@
             renderQuality.setMode(event.target.value);
             saveSettings();
         });
+
+
+        rendererReady = true;
+        window.ambientDiagnostics = () => ({ weather: weatherService.snapshot(), graphicsAvailable, renderFailures, lastRenderHeartbeat, issues: localIssues.slice(), starTextures: starSpriteCache.size });
+        safeVisualUpdate();
 
